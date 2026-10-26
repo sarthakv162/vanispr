@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { HelpCircle, AlertCircle, CheckCircle, ArrowRight, Clock, Smartphone } from 'lucide-react';
 import { RunnerTrial, WordEvent } from '../../types';
 import { SPRTimingEngine } from '../../engine/timingEngine';
@@ -22,7 +22,7 @@ export const TrialRunner: React.FC<TrialRunnerProps> = ({
   onFinishExperiment
 }) => {
   const [currentTrialIdx, setCurrentTrialIdx] = useState(0);
-  const [activeRegionIndex, setActiveRegionIndex] = useState(-1);
+  const [activeWordIndex, setActiveWordIndex] = useState(-1);
   const [trialPhase, setTrialPhase] = useState<'reading' | 'question' | 'feedback' | 'break'>('reading');
   
   // Question state
@@ -46,12 +46,33 @@ export const TrialRunner: React.FC<TrialRunnerProps> = ({
   const isPractice = currentTrial?.is_practice || currentTrial?.type === 'practice';
   const totalTrials = trials.length;
 
+  // Flatten regions into word sequence for true word-by-word SPR moving window
+  const sentenceWords = useMemo(() => {
+    let trialRegions = currentTrial?.regions;
+    if (!trialRegions || trialRegions.length === 0) {
+      const words = (currentTrial?.sentence_text || '').trim().split(/\s+/).filter(Boolean);
+      trialRegions = words.map((w, idx) => ({ index: idx + 1, text: w, words: [w] }));
+    }
+    const list: Array<{ wordIndex: number; regionIndex: number; word: string }> = [];
+    let counter = 0;
+    for (const r of trialRegions) {
+      for (const w of r.words) {
+        list.push({
+          wordIndex: counter++,
+          regionIndex: r.index,
+          word: w
+        });
+      }
+    }
+    return list;
+  }, [currentTrial]);
+
   // Start the reading phase for the current trial
   const startReadingCurrentTrial = async () => {
     if (!currentTrial) return;
 
     setTrialPhase('reading');
-    setActiveRegionIndex(-1);
+    setActiveWordIndex(-1);
     setUserAnswer(null);
     setIsCorrectAnswer(null);
     setExplanationText(null);
@@ -72,7 +93,7 @@ export const TrialRunner: React.FC<TrialRunnerProps> = ({
 
     const result = await engine.runTrial({
       regions: trialRegions,
-      renderRegion: (idx) => setActiveRegionIndex(idx)
+      renderWord: (idx) => setActiveWordIndex(idx)
     });
 
     trialEventsRef.current = result.wordEvents;
@@ -268,32 +289,23 @@ export const TrialRunner: React.FC<TrialRunnerProps> = ({
         title={trialPhase === 'reading' ? 'Click or Tap anywhere to advance word' : ''}
       >
         <div className="spr-sentence-container">
-          {((currentTrial.regions && currentTrial.regions.length > 0)
-            ? currentTrial.regions
-            : (currentTrial.sentence_text || '').trim().split(/\s+/).map((w, idx) => ({ index: idx + 1, text: w, words: [w] }))
-          ).map((region, rIdx) => {
-            const isActive = rIdx === activeRegionIndex;
-            const isMasked = !isActive;
-
+          {sentenceWords.map((item: { wordIndex: number; regionIndex: number; word: string }) => {
+            const isActive = item.wordIndex === activeWordIndex;
             return (
-              <div
-                key={rIdx}
-                className={`spr-region-chunk ${isActive ? 'active' : 'masked'} ${language === 'hi' ? 'devanagari' : ''}`}
+              <span
+                key={item.wordIndex}
+                className={`spr-word-item ${isActive ? 'active' : 'masked'} ${language === 'hi' ? 'devanagari' : ''}`}
               >
-                {isMasked ? (
-                  region.words.map((w, wIdx) => (
-                    <span key={wIdx} style={{ opacity: 0.35 }}>
-                      {createWordMask(w)}
-                    </span>
-                  ))
+                {isActive ? (
+                  <span style={{ color: 'var(--spr-active-text)', fontWeight: 600 }}>
+                    {item.word}
+                  </span>
                 ) : (
-                  region.words.map((w, wIdx) => (
-                    <span key={wIdx} style={{ color: 'var(--spr-active-text)', fontWeight: 600 }}>
-                      {w}
-                    </span>
-                  ))
+                  <span style={{ opacity: 0.35 }}>
+                    {createWordMask(item.word)}
+                  </span>
                 )}
-              </div>
+              </span>
             );
           })}
         </div>

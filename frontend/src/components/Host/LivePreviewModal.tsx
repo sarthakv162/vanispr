@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { X, Play, RotateCcw, Clock, CheckCircle } from 'lucide-react';
 import { ItemVersion, WordEvent, Region } from '../../types';
 import { SPRTimingEngine } from '../../engine/timingEngine';
@@ -19,25 +19,47 @@ export const LivePreviewModal: React.FC<LivePreviewModalProps> = ({
   language,
   onClose
 }) => {
-  const [activeRegionIndex, setActiveRegionIndex] = useState<number>(-1);
+  const [activeWordIndex, setActiveWordIndex] = useState<number>(-1);
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [isFinished, setIsFinished] = useState<boolean>(false);
   const [events, setEvents] = useState<WordEvent[]>([]);
   const [questionAnswered, setQuestionAnswered] = useState<string | null>(null);
   const engineRef = useRef<SPRTimingEngine | null>(null);
 
+  // Flatten version regions into word sequence
+  const sentenceWords = useMemo(() => {
+    let regions = version.regions;
+    if (!regions || regions.length === 0) {
+      const words = (version.sentence_text || '').trim().split(/\s+/).filter(Boolean);
+      regions = words.map((w, idx) => ({ index: idx + 1, text: w, words: [w] }));
+    }
+    const list: Array<{ wordIndex: number; regionIndex: number; word: string }> = [];
+    let counter = 0;
+    for (const r of regions) {
+      for (const w of r.words) {
+        list.push({
+          wordIndex: counter++,
+          regionIndex: r.index,
+          word: w
+        });
+      }
+    }
+    return list;
+  }, [version]);
+
   const startTrial = async () => {
     setIsFinished(false);
     setEvents([]);
     setQuestionAnswered(null);
     setIsRunning(true);
+    setActiveWordIndex(-1);
 
     const engine = new SPRTimingEngine();
     engineRef.current = engine;
 
     const result = await engine.runTrial({
       regions: version.regions,
-      renderRegion: (idx) => setActiveRegionIndex(idx)
+      renderWord: (idx) => setActiveWordIndex(idx)
     });
 
     setEvents(result.wordEvents);
@@ -97,29 +119,23 @@ export const LivePreviewModal: React.FC<LivePreviewModalProps> = ({
         {/* Masked Display Container */}
         <div className="spr-reading-stage" style={{ marginBottom: 24 }}>
           <div className="spr-sentence-container">
-            {version.regions.map((region, rIdx) => {
-              const isActive = rIdx === activeRegionIndex;
-              const isMasked = !isActive;
-
+            {sentenceWords.map((item) => {
+              const isActive = item.wordIndex === activeWordIndex;
               return (
-                <div
-                  key={rIdx}
-                  className={`spr-region-chunk ${isActive ? 'active' : 'masked'} ${language === 'hi' ? 'devanagari' : ''}`}
+                <span
+                  key={item.wordIndex}
+                  className={`spr-word-item ${isActive ? 'active' : 'masked'} ${language === 'hi' ? 'devanagari' : ''}`}
                 >
-                  {isMasked ? (
-                    region.words.map((w, wIdx) => (
-                      <span key={wIdx} style={{ opacity: 0.4 }}>
-                        {createWordMask(w)}
-                      </span>
-                    ))
+                  {isActive ? (
+                    <span style={{ color: 'var(--spr-active-text)', fontWeight: 600 }}>
+                      {item.word}
+                    </span>
                   ) : (
-                    region.words.map((w, wIdx) => (
-                      <span key={wIdx} style={{ color: 'var(--spr-active-text)', fontWeight: 600 }}>
-                        {w}
-                      </span>
-                    ))
+                    <span style={{ opacity: 0.4 }}>
+                      {createWordMask(item.word)}
+                    </span>
                   )}
-                </div>
+                </span>
               );
             })}
           </div>

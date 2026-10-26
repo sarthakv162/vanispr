@@ -64,7 +64,7 @@ export class SPRTimingEngine {
 
   public async runTrial(options: {
     regions: Region[];
-    renderRegion: (regionIndex: number) => void;
+    renderWord: (wordIndex: number) => void;
   }): Promise<TrialRunResult> {
     await ensureFontsReady();
 
@@ -81,15 +81,33 @@ export class SPRTimingEngine {
     document.addEventListener('visibilitychange', this.activeVisibilityListener);
     window.addEventListener('blur', this.activeVisibilityListener);
 
+    // Flatten all regions into a continuous sequence of individual words
+    const flattenedWords: Array<{
+      word_index: number;
+      region_index: number;
+      word_text: string;
+      grapheme_count: number;
+    }> = [];
+
     let globalWordIndex = 0;
+    for (const region of options.regions) {
+      for (const word of region.words) {
+        flattenedWords.push({
+          word_index: globalWordIndex++,
+          region_index: region.index,
+          word_text: word,
+          grapheme_count: getGraphemeCount(word)
+        });
+      }
+    }
 
     try {
-      // Loop through each region in the sentence
-      for (let rIdx = 0; rIdx < options.regions.length; rIdx++) {
-        const region = options.regions[rIdx];
-        
-        // 1. Trigger DOM update to display the active region (and mask others)
-        options.renderRegion(rIdx);
+      // Loop through each individual word in the sentence (True Word-by-Word SPR moving window)
+      for (let wIdx = 0; wIdx < flattenedWords.length; wIdx++) {
+        const item = flattenedWords[wIdx];
+
+        // 1. Trigger DOM update to display the active single word (and mask all other words)
+        options.renderWord(wIdx);
 
         // 2. Wait for actual hardware paint
         const tShown = await nextPaint();
@@ -97,29 +115,25 @@ export class SPRTimingEngine {
         // 3. Wait for participant's spacebar press
         const tPressed = await this.waitForSpacebarPress();
 
-        // 4. Calculate raw reaction time
+        // 4. Calculate raw reaction time for this specific word
         const rawRt = Math.max(0, tPressed - tShown);
 
-        // Record event for each word in the region
-        for (const word of region.words) {
-          const gCount = getGraphemeCount(word);
-          events.push({
-            word_index: globalWordIndex,
-            region_index: region.index,
-            word_text: word,
-            rt_ms: parseFloat(rawRt.toFixed(2)),
-            t_shown: parseFloat(tShown.toFixed(2)),
-            t_pressed: parseFloat(tPressed.toFixed(2)),
-            grapheme_count: gCount,
-            is_repeat: false,
-            is_outlier: rawRt < 100 || rawRt > 3000
-          });
-          globalWordIndex++;
-        }
+        // Record event for this individual word
+        events.push({
+          word_index: item.word_index,
+          region_index: item.region_index,
+          word_text: item.word_text,
+          rt_ms: parseFloat(rawRt.toFixed(2)),
+          t_shown: parseFloat(tShown.toFixed(2)),
+          t_pressed: parseFloat(tPressed.toFixed(2)),
+          grapheme_count: item.grapheme_count,
+          is_repeat: false,
+          is_outlier: rawRt < 100 || rawRt > 3000
+        });
       }
 
       // Hide all words (render -1)
-      options.renderRegion(-1);
+      options.renderWord(-1);
       await nextPaint();
 
     } finally {
