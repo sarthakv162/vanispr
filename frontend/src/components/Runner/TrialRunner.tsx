@@ -41,6 +41,7 @@ export const TrialRunner: React.FC<TrialRunnerProps> = ({
   const allTrialsCorrectCount = useRef(0);
   const allWordRts = useRef<number[]>([]);
   const engineRef = useRef<SPRTimingEngine | null>(null);
+  const isAnsweringRef = useRef(false);
 
   const currentTrial = trials[currentTrialIdx];
   const isPractice = currentTrial?.is_practice || currentTrial?.type === 'practice';
@@ -71,6 +72,7 @@ export const TrialRunner: React.FC<TrialRunnerProps> = ({
   const startReadingCurrentTrial = async () => {
     if (!currentTrial) return;
 
+    isAnsweringRef.current = false;
     setTrialPhase('reading');
     setActiveWordIndex(-1);
     setUserAnswer(null);
@@ -112,6 +114,8 @@ export const TrialRunner: React.FC<TrialRunnerProps> = ({
       setQuestionStartTime(performance.now());
     } else {
       // No question, immediately commit and proceed
+      if (isAnsweringRef.current) return;
+      isAnsweringRef.current = true;
       await commitAndProceed(null, null, null);
     }
   };
@@ -138,6 +142,8 @@ export const TrialRunner: React.FC<TrialRunnerProps> = ({
         else if (key === 'j') chosen = 'no';
 
         if (chosen) {
+          if (isAnsweringRef.current) return;
+          isAnsweringRef.current = true;
           e.preventDefault();
           const qRt = performance.now() - questionStartTime;
           const rawAns = (currentTrial.correct_answer || 'yes').trim().toLowerCase();
@@ -392,6 +398,7 @@ export const TrialRunner: React.FC<TrialRunnerProps> = ({
           <div style={{ display: 'flex', justifyContent: 'center', gap: 24 }}>
             <button
               onClick={() => {
+                if (isAnsweringRef.current) return;
                 const e = new KeyboardEvent('keydown', { key: 'f' });
                 window.dispatchEvent(e);
               }}
@@ -403,6 +410,7 @@ export const TrialRunner: React.FC<TrialRunnerProps> = ({
 
             <button
               onClick={() => {
+                if (isAnsweringRef.current) return;
                 const e = new KeyboardEvent('keydown', { key: 'j' });
                 window.dispatchEvent(e);
               }}

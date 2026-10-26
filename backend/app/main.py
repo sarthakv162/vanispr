@@ -41,10 +41,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def cleanup_duplicate_trials(conn):
+    """
+    Cleans up duplicate trial submissions (caused by double-clicking answer or key repeat).
+    Keeps the earliest submission and removes duplicate trials and their word events.
+    """
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+        DELETE FROM word_events WHERE trial_id IN (
+            SELECT t1.id FROM trials t1
+            JOIN trials t2 ON t1.participant_id = t2.participant_id 
+                          AND t1.presentation_order = t2.presentation_order 
+                          AND t1.id > t2.id
+        )
+        """)
+        cursor.execute("""
+        DELETE FROM trials WHERE id IN (
+            SELECT t1.id FROM trials t1
+            JOIN trials t2 ON t1.participant_id = t2.participant_id 
+                          AND t1.presentation_order = t2.presentation_order 
+                          AND t1.id > t2.id
+        )
+        """)
+    except Exception as e:
+        print(f"[VaniSPR] Notice during trial deduplication: {e}")
+
 @app.on_event("startup")
 def on_startup():
     init_db()
     seed_database()
+    with get_db() as conn:
+        cleanup_duplicate_trials(conn)
 
 @app.get("/")
 def root():
@@ -785,8 +813,15 @@ def submit_trial_data(req: TrialSubmitRequest):
         if not iv_row:
             cursor.execute("SELECT id FROM item_versions LIMIT 1")
             fb = cursor.fetchone()
-            if fb:
-                req.item_version_id = fb["id"]
+        # 3. Check for duplicate trial submission (e.g. rapid double-tap on Yes/No or key repeat)
+        cursor.execute(
+            "SELECT id FROM trials WHERE participant_id = ? AND presentation_order = ?",
+            (req.participant_id, req.presentation_order)
+        )
+        existing_trial = cursor.fetchone()
+        if existing_trial:
+            print(f"[VaniSPR] Ignored duplicate trial {req.presentation_order} for participant {req.participant_id}")
+            return {"status": "ok", "trial_id": existing_trial["id"], "duplicate": True}
 
         try:
             cursor.execute("""
@@ -852,6 +887,7 @@ def complete_participant_session(req: ParticipantCompleteRequest):
 @app.get("/api/dashboard/{experiment_id}")
 def get_live_dashboard(experiment_id: str):
     with get_db() as conn:
+        cleanup_duplicate_trials(conn)
         cursor = conn.cursor()
         
         # Participants stats
@@ -935,6 +971,7 @@ def get_live_dashboard(experiment_id: str):
 @app.get("/api/analysis/{experiment_id}")
 def get_analysis_results(experiment_id: str, filler_acc: float = 0.75, rt_min: float = 100.0, rt_max: float = 3000.0):
     with get_db() as conn:
+        cleanup_duplicate_trials(conn)
         cursor = conn.cursor()
         
         cursor.execute("""
@@ -968,6 +1005,7 @@ def get_participant_deep_analysis(experiment_id: str, participant_id: str):
     - Critical Region 5 verb integration comparison across conditions.
     """
     with get_db() as conn:
+        cleanup_duplicate_trials(conn)
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -1030,14 +1068,14 @@ def get_participant_deep_analysis(experiment_id: str, participant_id: str):
         intercept = round(float(avg_rt), 1)
         r_squared = 0.0
 
-    # 2. Group words by trial and compute residuals & difficulty
+    # 2. Group words by trial and compute residuals & difficulty (keyed by presentation_order to prevent duplicates)
     trials_dict = {}
     for r in raw_rows:
-        t_id = r["trial_id"]
-        if t_id not in trials_dict:
-            trials_dict[t_id] = {
-                "trial_id": t_id,
-                "presentation_order": r["presentation_order"],
+        order = r["presentation_order"]
+        if order not in trials_dict:
+            trials_dict[order] = {
+                "trial_id": r["trial_id"],
+                "presentation_order": order,
                 "item_number": r["item_number"],
                 "type": r["item_type"],
                 "condition_label": r["condition_label"],
@@ -1050,6 +1088,10 @@ def get_participant_deep_analysis(experiment_id: str, participant_id: str):
                 "focus_lost_count": r["focus_lost_count"],
                 "words": []
             }
+
+        # Deduplicate word event if duplicate word_index exists for this presentation order
+        if any(w["word_index"] == r["word_index"] for w in trials_dict[order]["words"]):
+            continue
 
         rt = float(r["rt_ms"])
         predicted = intercept + slope * r["grapheme_count"]
@@ -1069,7 +1111,7 @@ def get_participant_deep_analysis(experiment_id: str, participant_id: str):
         else:
             diff_level = "normal"
 
-        trials_dict[t_id]["words"].append({
+        trials_dict[order]["words"].append({
             "word_index": r["word_index"],
             "region_index": r["region_index"],
             "word_text": r["word_text"],
