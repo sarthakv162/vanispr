@@ -6,7 +6,9 @@ import {
   AnalysisResponse, DashboardData, NormingItem, NormingResult
 } from '../types';
 
-const BASE_URL = '/api';
+const BASE_URL = import.meta.env.VITE_API_BASE_URL 
+  ? `${import.meta.env.VITE_API_BASE_URL.replace(/\/$/, '')}/api` 
+  : '/api';
 
 export const api = {
   // Experiments
