@@ -46,6 +46,10 @@ def on_startup():
     init_db()
     seed_database()
 
+@app.get("/")
+def root():
+    return {"status": "ok", "platform": "VaniSPR", "version": "1.0.0", "docs": "/docs", "health": "/api/health"}
+
 @app.get("/api/health")
 def health_check():
     return {"status": "ok", "platform": "VaniSPR", "version": "1.0.0"}
