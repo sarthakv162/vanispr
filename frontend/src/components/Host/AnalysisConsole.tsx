@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   TrendingUp, Download, Code, FileText, CheckCircle,
   AlertCircle, Sliders, RefreshCw, BarChart2, User, Search,
-  ListOrdered, Clock, Flame, Trash2
+  ListOrdered, Clock, Flame, Trash2, Database
 } from 'lucide-react';
 import { Experiment, AnalysisResponse } from '../../types';
 import { api } from '../../api/client';
@@ -214,6 +214,15 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
             >
               <FileText size={14} /> Python Script (statsmodels)
             </a>
+
+            <a
+              href={api.getExportDbUrl()}
+              className="btn btn-secondary btn-sm"
+              download="vanispr_complete_backup.db"
+              title="Download entire SQLite database (.db) file to keep participant data backed up locally"
+            >
+              <Database size={14} /> Full SQLite DB (.db)
+            </a>
           </div>
         </div>
 
@@ -380,7 +389,7 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
               </div>
 
               {/* Chart SVG */}
-              <svg viewBox="0 0 800 320" style={{ width: '100%', height: 320, overflow: 'visible' }}>
+              <svg viewBox="0 0 800 320" style={{ width: '100%', height: 320, overflow: 'hidden' }}>
                 {/* Horizontal reference zero line for residuals */}
                 {metricMode === 'residual' && (
                   <line x1="60" y1="160" x2="760" y2="160" stroke="var(--chart-zero-line)" strokeDasharray="4,4" />
@@ -424,15 +433,25 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
                   const color = conditionColors[cond] || '#cbd5e1';
                   const points = data.figure_data.map((r, rIdx) => {
                     const stats = r.conditions[cond] || { mean_residual_rt: 0, mean_raw_rt: 350, sem_residual_rt: 0 };
-                    const val = metricMode === 'residual' ? stats.mean_residual_rt : stats.mean_raw_rt;
+                    const rawVal = metricMode === 'residual' ? stats.mean_residual_rt : stats.mean_raw_rt;
+                    // Clamp visual value to ±200ms for residual so individual large pause values don't explode chart
+                    const clampedVal = metricMode === 'residual'
+                      ? Math.max(-190, Math.min(190, Number(rawVal) || 0))
+                      : Math.max(150, Math.min(650, Number(rawVal) || 350));
+
                     const x = 110 + rIdx * 90;
-                    // Map val to y coordinates
-                    const y = metricMode === 'residual'
-                      ? 160 - (val / 150) * 110
-                      : 250 - ((val - 200) / 400) * 220;
-                    const sem = stats.sem_residual_rt;
-                    const semHeight = (sem / 150) * 110;
-                    return { x, y, val, sem, semHeight, region: r.region_index };
+                    // Map val to y coordinates safely clamped within chart view area [30, 260]
+                    const calculatedY = metricMode === 'residual'
+                      ? 160 - (clampedVal / 150) * 110
+                      : 250 - ((clampedVal - 200) / 400) * 220;
+                    const y = Math.max(30, Math.min(260, calculatedY));
+
+                    // Safe SEM calculation (clamped to max 50px height, 0 if only 1 subject or NaN)
+                    const rawSem = Number(stats.sem_residual_rt) || 0;
+                    const sem = (!isNaN(rawSem) && isFinite(rawSem)) ? Math.max(0, rawSem) : 0;
+                    const semHeight = Math.min(50, Math.max(0, (sem / 150) * 110));
+
+                    return { x, y, val: rawVal, sem, semHeight, region: r.region_index };
                   });
 
                   const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
@@ -446,12 +465,12 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
                       {points.map((p, pIdx) => (
                         <g key={pIdx}>
                           {/* Error bar */}
-                          {metricMode === 'residual' && p.semHeight > 0 && (
+                          {metricMode === 'residual' && p.semHeight > 2 && (
                             <line
                               x1={p.x}
-                              y1={p.y - p.semHeight}
+                              y1={Math.max(25, p.y - p.semHeight)}
                               x2={p.x}
-                              y2={p.y + p.semHeight}
+                              y2={Math.min(265, p.y + p.semHeight)}
                               stroke={color}
                               strokeWidth="1.5"
                               opacity="0.75"

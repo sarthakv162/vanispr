@@ -15,6 +15,23 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({ experiment, onOpen
 
   const participantUrl = `${window.location.origin}${window.location.pathname}?exp=${experiment.id}&participant=true`;
 
+  const formatUtcTimestamp = (ts?: string | null) => {
+    if (!ts) return '—';
+    const cleaned = ts.trim();
+    const utcIso = cleaned.includes('T')
+      ? (cleaned.endsWith('Z') ? cleaned : `${cleaned}Z`)
+      : `${cleaned.replace(' ', 'T')}Z`;
+    const d = new Date(utcIso);
+    return isNaN(d.getTime()) ? ts : d.toLocaleString([], {
+      month: 'numeric',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
   const handleCopyLink = async () => {
     try {
       await navigator.clipboard.writeText(participantUrl);
@@ -53,6 +70,15 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({ experiment, onOpen
 
   const pStats = data?.participant_stats || { total: 0, completed: 0, in_progress: 0 };
   const completionRate = pStats.total > 0 ? Math.round((pStats.completed / pStats.total) * 100) : 0;
+
+  const fillerAccuracyItem = data?.accuracy_by_type?.find((a) => a.type === 'filler');
+  const hasFillerData = Boolean(fillerAccuracyItem && fillerAccuracyItem.count > 0);
+  const attentionQualityPercent = hasFillerData ? Math.round(fillerAccuracyItem!.accuracy) : null;
+  const attentionQualityColor = attentionQualityPercent === null
+    ? 'var(--text-muted)'
+    : attentionQualityPercent >= 75
+    ? '#38bdf8'
+    : 'var(--accent-rose)';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -157,11 +183,13 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({ experiment, onOpen
             <span style={{ fontSize: '0.82rem', fontWeight: 600, textTransform: 'uppercase' }}>Attention Check Quality</span>
             <ShieldCheck size={18} color="var(--accent-cyan)" />
           </div>
-          <div style={{ fontSize: '2rem', fontWeight: 700, color: '#38bdf8' }} className="mono">
-            94.2%
+          <div style={{ fontSize: '2rem', fontWeight: 700, color: attentionQualityColor }} className="mono">
+            {attentionQualityPercent !== null ? `${attentionQualityPercent}%` : (pStats.completed > 0 ? '100%' : '—')}
           </div>
           <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4 }}>
-            Threshold ≥75% (Gibson & Warren 2004)
+            {hasFillerData
+              ? `${fillerAccuracyItem!.count} filler checks (Threshold ≥75%)`
+              : 'Threshold ≥75% (Gibson & Warren 2004)'}
           </div>
         </div>
       </div>
@@ -342,7 +370,7 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({ experiment, onOpen
                       {p.trials_count} trials
                     </td>
                     <td style={{ padding: '10px 12px', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-                      {p.created_at ? new Date(p.created_at).toLocaleString() : '—'}
+                      {formatUtcTimestamp(p.created_at)}
                     </td>
                   </tr>
                 ))}

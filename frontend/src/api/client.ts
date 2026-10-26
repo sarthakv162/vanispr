@@ -178,6 +178,10 @@ export const api = {
     return `${BASE_URL}/analysis/${experimentId}/export-python-script`;
   },
 
+  getExportDbUrl(): string {
+    return `${BASE_URL}/admin/backup-db`;
+  },
+
   // Norming Module
   async getNormingItems(experimentId: string): Promise<NormingItem[]> {
     const res = await fetch(`${BASE_URL}/norming/${experimentId}`);

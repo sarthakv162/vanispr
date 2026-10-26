@@ -14,7 +14,7 @@ from scipy import stats
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Depends, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, PlainTextResponse
+from fastapi.responses import StreamingResponse, PlainTextResponse, FileResponse
 
 from app.database import get_db, init_db
 from app.models import (
@@ -860,7 +860,16 @@ def get_live_dashboard(experiment_id: str):
         WHERE p.experiment_id = ?
         ORDER BY p.created_at DESC
         """, (experiment_id,))
-        participants_roster = [dict(r) for r in cursor.fetchall()]
+        participants_roster = []
+        for r in cursor.fetchall():
+            row_dict = dict(r)
+            if row_dict.get("created_at") and not str(row_dict["created_at"]).endswith("Z"):
+                c_str = str(row_dict["created_at"]).replace(" ", "T")
+                row_dict["created_at"] = f"{c_str}Z"
+            if row_dict.get("completed_at") and not str(row_dict["completed_at"]).endswith("Z"):
+                c_str = str(row_dict["completed_at"]).replace(" ", "T")
+                row_dict["completed_at"] = f"{c_str}Z"
+            participants_roster.append(row_dict)
 
         return {
             "participant_stats": p_stats,
@@ -1208,6 +1217,22 @@ def export_py_script(experiment_id: str):
     
     script = generate_python_script(title)
     return PlainTextResponse(script, media_type="text/plain", headers={"Content-Disposition": "attachment; filename=analysis_pipeline.py"})
+
+@app.get("/api/admin/backup-db")
+def download_database_backup():
+    """
+    Direct download of the complete SQLite database file (aadyalang_spr.db)
+    to safeguard collected participant data.
+    """
+    import os
+    from app.database import DB_PATH
+    if not os.path.exists(DB_PATH):
+        raise HTTPException(status_code=404, detail="Database file not found")
+    return FileResponse(
+        path=DB_PATH,
+        filename="vanispr_complete_backup.db",
+        media_type="application/x-sqlite3"
+    )
 
 # ==============================================================================
 # NORMING SURVEY MODULE (Plausibility rating 1-7 & exclusion testing)
