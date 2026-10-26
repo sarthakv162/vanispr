@@ -3,7 +3,8 @@
  */
 import {
   Experiment, Item, RunnerSessionInit,
-  AnalysisResponse, DashboardData, NormingItem, NormingResult
+  AnalysisResponse, DashboardData, NormingItem, NormingResult,
+  ParticipantDeepAnalysis
 } from '../types';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL 
@@ -131,6 +132,36 @@ export const api = {
   async getAnalysis(experimentId: string, fillerAcc = 0.75, rtMin = 100, rtMax = 3000): Promise<AnalysisResponse> {
     const res = await fetch(`${BASE_URL}/analysis/${experimentId}?filler_acc=${fillerAcc}&rt_min=${rtMin}&rt_max=${rtMax}`);
     if (!res.ok) throw new Error('Failed to fetch analysis');
+    return res.json();
+  },
+
+  async getParticipantAnalysis(experimentId: string, participantId: string): Promise<ParticipantDeepAnalysis> {
+    const res = await fetch(`${BASE_URL}/analysis/${experimentId}/participants/${participantId}`);
+    if (!res.ok) throw new Error('Failed to fetch participant deep analysis');
+    return res.json();
+  },
+
+  async deleteParticipant(experimentId: string, participantId: string): Promise<{ status: string; message: string }> {
+    const res = await fetch(`${BASE_URL}/experiments/${experimentId}/participants/${participantId}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error('Failed to delete participant');
+    return res.json();
+  },
+
+  async clearParticipants(experimentId: string, targetType: 'all' | 'pilots_only' | 'non_pilots_only' = 'non_pilots_only'): Promise<{ status: string; deleted_count: number; message: string }> {
+    const res = await fetch(`${BASE_URL}/experiments/${experimentId}/participants?target_type=${targetType}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error('Failed to clear participants');
+    return res.json();
+  },
+
+  async seedPilotData(experimentId: string): Promise<{ status: string; pilot_participants_count: number; message: string }> {
+    const res = await fetch(`${BASE_URL}/experiments/${experimentId}/seed-pilot`, {
+      method: 'POST'
+    });
+    if (!res.ok) throw new Error('Failed to seed pilot benchmark data');
     return res.json();
   },
 

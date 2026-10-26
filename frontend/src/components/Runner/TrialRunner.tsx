@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { HelpCircle, AlertCircle, CheckCircle, ArrowRight, Clock } from 'lucide-react';
+import { HelpCircle, AlertCircle, CheckCircle, ArrowRight, Clock, Smartphone } from 'lucide-react';
 import { RunnerTrial, WordEvent } from '../../types';
 import { SPRTimingEngine } from '../../engine/timingEngine';
 import { createWordMask } from '../../engine/hindiSegmenter';
@@ -56,11 +56,22 @@ export const TrialRunner: React.FC<TrialRunnerProps> = ({
     setIsCorrectAnswer(null);
     setExplanationText(null);
 
+    // Ensure regions are populated (split whitespace for fillers if regions array is empty)
+    let trialRegions = currentTrial.regions;
+    if (!trialRegions || trialRegions.length === 0) {
+      const words = (currentTrial.sentence_text || '').trim().split(/\s+/).filter(Boolean);
+      trialRegions = words.map((w, idx) => ({
+        index: idx + 1,
+        text: w,
+        words: [w]
+      }));
+    }
+
     const engine = new SPRTimingEngine();
     engineRef.current = engine;
 
     const result = await engine.runTrial({
-      regions: currentTrial.regions,
+      regions: trialRegions,
       renderRegion: (idx) => setActiveRegionIndex(idx)
     });
 
@@ -246,9 +257,21 @@ export const TrialRunner: React.FC<TrialRunnerProps> = ({
       </div>
 
       {/* Main Masked Reading Window */}
-      <div className="spr-reading-stage">
+      <div
+        className="spr-reading-stage"
+        onClick={() => {
+          if (trialPhase === 'reading') {
+            window.dispatchEvent(new CustomEvent('vanispr:advance', { detail: { timeStamp: performance.now() } }));
+          }
+        }}
+        style={{ cursor: trialPhase === 'reading' ? 'pointer' : 'default' }}
+        title={trialPhase === 'reading' ? 'Click or Tap anywhere to advance word' : ''}
+      >
         <div className="spr-sentence-container">
-          {currentTrial.regions.map((region, rIdx) => {
+          {((currentTrial.regions && currentTrial.regions.length > 0)
+            ? currentTrial.regions
+            : (currentTrial.sentence_text || '').trim().split(/\s+/).map((w, idx) => ({ index: idx + 1, text: w, words: [w] }))
+          ).map((region, rIdx) => {
             const isActive = rIdx === activeRegionIndex;
             const isMasked = !isActive;
 
@@ -275,20 +298,53 @@ export const TrialRunner: React.FC<TrialRunnerProps> = ({
           })}
         </div>
 
-        {/* Spacebar Instruction prompt */}
+        {/* Spacebar & Touch Instruction prompt */}
         {trialPhase === 'reading' && (
           <div style={{
-            marginTop: 40,
-            fontSize: '0.85rem',
-            color: 'var(--text-secondary)',
+            marginTop: 36,
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
-            gap: 8
+            gap: 12,
+            width: '100%'
           }}>
-            <span className="kbd-key">SPACEBAR</span>
-            <span>
-              {language === 'hi' ? 'अगला शब्द देखने के लिए स्पेसबार दबाएँ' : 'Press spacebar to advance'}
-            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                window.dispatchEvent(new CustomEvent('vanispr:advance', { detail: { timeStamp: performance.now() } }));
+              }}
+              className="btn btn-primary spr-mobile-tap-btn"
+              style={{
+                display: 'none',
+                alignItems: 'center',
+                gap: 8,
+                padding: '12px 20px',
+                borderRadius: 'var(--radius-lg)',
+                fontSize: '0.92rem',
+                fontWeight: 600,
+                boxShadow: '0 4px 16px var(--accent-indigo-glow)'
+              }}
+            >
+              <Smartphone size={18} />
+              <span>{language === 'hi' ? 'अगला शब्द देखने के लिए यहाँ टैप करें' : 'Tap to reveal next word'}</span>
+            </button>
+
+            <div style={{
+              fontSize: '0.85rem',
+              color: 'var(--text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexWrap: 'wrap',
+              gap: 8,
+              textAlign: 'center'
+            }}>
+              <span className="kbd-key">SPACEBAR</span>
+              <span>
+                {language === 'hi' ? 'दबाएँ या स्क्रीन पर कहीं भी टैप करें' : 'Press spacebar or tap anywhere on screen'}
+              </span>
+            </div>
           </div>
         )}
       </div>

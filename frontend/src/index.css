@@ -409,3 +409,67 @@ body {
 .pulse {
   animation: pulse-subtle 2s infinite ease-in-out;
 }
+
+/* ==============================================================================
+   Mobile Responsiveness & Touchscreen Optimizations
+   ============================================================================== */
+
+@media (pointer: coarse), (max-width: 768px) {
+  .spr-mobile-tap-btn {
+    display: inline-flex !important;
+  }
+}
+
+@media (max-width: 768px) {
+  /* Reading Stage on Phone */
+  .spr-reading-stage {
+    padding: 28px 14px;
+    min-height: 190px;
+    border-radius: var(--radius-lg);
+  }
+
+  .spr-sentence-container {
+    gap: 8px 10px;
+    line-height: 2.0;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .spr-region-chunk {
+    font-size: 1.28rem;
+    padding: 2px 4px;
+  }
+
+  /* Panels & Cards on Phone */
+  .glass-panel {
+    padding: 20px 16px !important;
+    border-radius: var(--radius-lg) !important;
+  }
+
+  /* Buttons & Touch Targets */
+  .btn {
+    min-height: 38px;
+  }
+
+  .btn-lg {
+    padding: 12px 18px !important;
+    font-size: 1rem !important;
+  }
+
+  /* Navigation adjustments */
+  .nav-desktop-only {
+    display: none !important;
+  }
+
+  .nav-mobile-wrap {
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+  }
+
+  .spr-tap-advance-btn {
+    width: 100% !important;
+    max-width: 320px;
+    justify-content: center;
+  }
+}
+

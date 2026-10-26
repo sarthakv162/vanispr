@@ -8,7 +8,9 @@ import re
 import csv
 import json
 import uuid
+import random
 import unicodedata
+from scipy import stats
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Depends, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -204,6 +206,75 @@ def delete_item(experiment_id: str, item_id: str):
         cursor = conn.cursor()
         cursor.execute("DELETE FROM items WHERE id = ? AND experiment_id = ?", (item_id, experiment_id))
     return {"message": "Item deleted"}
+
+@app.delete("/api/experiments/{experiment_id}/participants/{participant_id}")
+def delete_participant(experiment_id: str, participant_id: str):
+    """
+    Removes a specific participant and their trials, word_events, and quality flags.
+    All stimulus items, experimental configuration, and other participants remain intact.
+    """
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, external_id FROM participants WHERE id = ? AND experiment_id = ?", (participant_id, experiment_id))
+        p_row = cursor.fetchone()
+        if not p_row:
+            raise HTTPException(status_code=404, detail="Participant not found")
+
+        # Explicit cascading deletes for absolute database consistency
+        cursor.execute("DELETE FROM quality_flags WHERE participant_id = ?", (participant_id,))
+        cursor.execute("DELETE FROM word_events WHERE trial_id IN (SELECT id FROM trials WHERE participant_id = ?)", (participant_id,))
+        cursor.execute("DELETE FROM trials WHERE participant_id = ?", (participant_id,))
+        cursor.execute("DELETE FROM participants WHERE id = ? AND experiment_id = ?", (participant_id, experiment_id))
+
+    return {
+        "status": "deleted",
+        "participant_id": participant_id,
+        "external_id": p_row["external_id"],
+        "message": f"Participant {p_row['external_id'] or participant_id} removed successfully"
+    }
+
+@app.delete("/api/experiments/{experiment_id}/participants")
+def clear_participants(
+    experiment_id: str,
+    target_type: str = Query("all", description="all, pilots_only, non_pilots_only")
+):
+    """
+    Bulk removes participant entries to allow clean fresh analysis runs.
+    """
+    with get_db() as conn:
+        cursor = conn.cursor()
+        if target_type == "non_pilots_only":
+            where_clause = "experiment_id = ? AND id NOT LIKE 'part_hindi_pilot_%'"
+        elif target_type == "pilots_only":
+            where_clause = "experiment_id = ? AND id LIKE 'part_hindi_pilot_%'"
+        else:
+            where_clause = "experiment_id = ?"
+
+        cursor.execute(f"SELECT id FROM participants WHERE {where_clause}", (experiment_id,))
+        p_ids = [r["id"] for r in cursor.fetchall()]
+
+        for p_id in p_ids:
+            cursor.execute("DELETE FROM quality_flags WHERE participant_id = ?", (p_id,))
+            cursor.execute("DELETE FROM word_events WHERE trial_id IN (SELECT id FROM trials WHERE participant_id = ?)", (p_id,))
+            cursor.execute("DELETE FROM trials WHERE participant_id = ?", (p_id,))
+            cursor.execute("DELETE FROM participants WHERE id = ?", (p_id,))
+
+    return {
+        "status": "cleared",
+        "deleted_count": len(p_ids),
+        "message": f"Successfully cleared {len(p_ids)} participant entries"
+    }
+
+@app.post("/api/experiments/{experiment_id}/seed-pilot")
+def seed_pilot_data(experiment_id: str):
+    from app.seed_pilot import seed_pilot_participants_for_exp
+    count = seed_pilot_participants_for_exp(experiment_id, 12)
+    return {
+        "status": "seeded",
+        "experiment_id": experiment_id,
+        "pilot_participants_count": count,
+        "message": f"Benchmark pilot dataset seeded ({count} participants)"
+    }
 
 # ==============================================================================
 # BULK CSV IMPORT & LATIN SQUARE GENERATION
@@ -575,9 +646,10 @@ def init_participant_session(req: ParticipantInitRequest):
             """, (req.experiment_id,))
             assigned_rows = cursor.fetchall()
 
-        # Separate practice vs experimental/filler
+        # Separate practice vs experimental vs filler
         practice_trials = []
-        regular_trials = []
+        exp_by_condition: Dict[str, List[Dict[str, Any]]] = {}
+        fillers_pool: List[Dict[str, Any]] = []
 
         for row in assigned_rows:
             trial_data = {
@@ -594,10 +666,63 @@ def init_participant_session(req: ParticipantInitRequest):
             }
             if row["type"] == "practice":
                 practice_trials.append(trial_data)
+            elif row["type"] == "experimental":
+                c = row["condition_label"]
+                exp_by_condition.setdefault(c, []).append(trial_data)
             else:
-                regular_trials.append(trial_data)
+                fillers_pool.append(trial_data)
 
-        # Build pseudo-randomized sequence
+        # Build trial set based on trial_mode
+        # Default: 'balanced_8' (4 target sentences - 1 per condition, plus 4 fillers)
+        if getattr(req, "trial_mode", "balanced_8") == "full":
+            regular_trials = []
+            for items in exp_by_condition.values():
+                regular_trials.extend(items)
+            regular_trials.extend(fillers_pool)
+        else:
+            # Pick 1 random target item from each condition (4 target sentences)
+            # Guarantee 100% uniqueness: NO item_number or sentence can ever repeat
+            used_item_numbers = set()
+            used_sentences = set()
+            selected_targets = []
+
+            for cond in sorted(exp_by_condition.keys()):
+                items = exp_by_condition[cond]
+                # Filter items not yet used
+                available = [
+                    it for it in items
+                    if it["item_number"] not in used_item_numbers
+                    and it["sentence_text"].strip() not in used_sentences
+                ]
+                if not available:
+                    available = items
+                chosen = random.choice(available)
+                used_item_numbers.add(chosen["item_number"])
+                used_sentences.add(chosen["sentence_text"].strip())
+                selected_targets.append(chosen)
+
+            # Pick 4 random fillers from the pool, strictly ensuring NO overlap with targets and NO repeat sentences
+            unique_fillers_pool = []
+            seen_filler_keys = set()
+            for f in fillers_pool:
+                f_key = f["sentence_text"].strip()
+                if (
+                    f["item_number"] not in used_item_numbers
+                    and f_key not in used_sentences
+                    and f_key not in seen_filler_keys
+                ):
+                    seen_filler_keys.add(f_key)
+                    unique_fillers_pool.append(f)
+
+            num_fillers = max(len(selected_targets), 4)
+            if len(unique_fillers_pool) >= num_fillers:
+                selected_fillers = random.sample(unique_fillers_pool, num_fillers)
+            else:
+                selected_fillers = list(unique_fillers_pool)
+
+            regular_trials = selected_targets + selected_fillers
+
+        # Build pseudo-randomized sequence (strictly interleaving: Filler -> Target -> Filler -> Target...)
         sequence = pseudo_randomize_trials(regular_trials, practice_trials)
 
         return {
@@ -758,6 +883,253 @@ def get_analysis_results(experiment_id: str, filler_acc: float = 0.75, rt_min: f
 
     return compute_spr_analysis(raw_events, filler_accuracy_threshold=filler_acc, rt_min=rt_min, rt_max=rt_max)
 
+@app.get("/api/analysis/{experiment_id}/participants/{participant_id}")
+def get_participant_deep_analysis(experiment_id: str, participant_id: str):
+    """
+    Returns deep participant-level drilldown:
+    - Personal reading speed regression (Word Length -> RT).
+    - Per-sentence trial sequence (Targets vs Fillers).
+    - Per-word reading times and residual RTs with cognitive load / difficulty tier tagging.
+    - Critical Region 5 verb integration comparison across conditions.
+    """
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute("""
+        SELECT p.*, l.list_number
+        FROM participants p
+        JOIN lists l ON p.list_id = l.id
+        WHERE p.id = ? AND p.experiment_id = ?
+        """, (participant_id, experiment_id))
+        p_row = cursor.fetchone()
+        if not p_row:
+            raise HTTPException(status_code=404, detail="Participant not found")
+
+        cursor.execute("""
+        SELECT 
+            we.id as event_id, we.word_index, we.region_index, we.word_text, we.rt_ms, we.grapheme_count,
+            t.id as trial_id, t.presentation_order, t.question_response, t.correct as question_correct, t.question_rt_ms, t.focus_lost_count,
+            iv.condition_label, iv.sentence_text, iv.regions_json,
+            i.id as item_id, i.item_number, i.type as item_type, i.question, i.correct_answer, i.explanation
+        FROM word_events we
+        JOIN trials t ON we.trial_id = t.id
+        JOIN item_versions iv ON t.item_version_id = iv.id
+        JOIN items i ON iv.item_id = i.id
+        WHERE t.participant_id = ?
+        ORDER BY t.presentation_order, we.word_index
+        """, (participant_id,))
+        raw_rows = [dict(r) for r in cursor.fetchall()]
+
+    if not raw_rows:
+        return {
+            "participant": dict(p_row),
+            "regression": {"slope": 0, "intercept": 0, "r_squared": 0},
+            "trials": [],
+            "critical_region_summary": {}
+        }
+
+    # 1. Compute personal word-length regression (Residual Reading Time baseline)
+    valid_events = [r for r in raw_rows if 100.0 <= r["rt_ms"] <= 3000.0]
+    if len(valid_events) >= 5:
+        lengths = [r["grapheme_count"] for r in valid_events]
+        rts = [r["rt_ms"] for r in valid_events]
+        try:
+            if len(set(lengths)) > 1:
+                slope, intercept, r_val, p_val, std_err = stats.linregress(lengths, rts)
+                r_squared = round(float(r_val ** 2), 3)
+                slope = round(float(slope), 2)
+                intercept = round(float(intercept), 1)
+            else:
+                avg_rt = sum(r["rt_ms"] for r in raw_rows) / max(1, len(raw_rows))
+                slope = 0.0
+                intercept = round(float(avg_rt), 1)
+                r_squared = 0.0
+        except Exception:
+            avg_rt = sum(r["rt_ms"] for r in raw_rows) / max(1, len(raw_rows))
+            slope = 0.0
+            intercept = round(float(avg_rt), 1)
+            r_squared = 0.0
+    else:
+        avg_rt = sum(r["rt_ms"] for r in raw_rows) / max(1, len(raw_rows))
+        slope = 0.0
+        intercept = round(float(avg_rt), 1)
+        r_squared = 0.0
+
+    # 2. Group words by trial and compute residuals & difficulty
+    trials_dict = {}
+    for r in raw_rows:
+        t_id = r["trial_id"]
+        if t_id not in trials_dict:
+            trials_dict[t_id] = {
+                "trial_id": t_id,
+                "presentation_order": r["presentation_order"],
+                "item_number": r["item_number"],
+                "type": r["item_type"],
+                "condition_label": r["condition_label"],
+                "sentence_text": r["sentence_text"],
+                "question": r["question"],
+                "correct_answer": r["correct_answer"],
+                "user_response": r["question_response"],
+                "question_correct": bool(r["question_correct"] == 1),
+                "question_rt_ms": round(float(r["question_rt_ms"] or 0), 1),
+                "focus_lost_count": r["focus_lost_count"],
+                "words": []
+            }
+
+        rt = float(r["rt_ms"])
+        predicted = intercept + slope * r["grapheme_count"]
+        residual = round(rt - predicted, 1)
+
+        # Cognitive Load Tier:
+        # 'hard': residual >= 80ms (slowdown peak, high cognitive load)
+        # 'elevated': residual >= 30ms (moderate delay)
+        # 'fast': residual <= -30ms (quick processing)
+        # 'normal': baseline reading
+        if residual >= 80.0 or rt >= 600.0:
+            diff_level = "hard"
+        elif residual >= 30.0 or rt >= 420.0:
+            diff_level = "elevated"
+        elif residual <= -30.0:
+            diff_level = "fast"
+        else:
+            diff_level = "normal"
+
+        trials_dict[t_id]["words"].append({
+            "word_index": r["word_index"],
+            "region_index": r["region_index"],
+            "word_text": r["word_text"],
+            "rt_ms": round(rt, 1),
+            "predicted_rt": round(predicted, 1),
+            "residual_rt": residual,
+            "grapheme_count": r["grapheme_count"],
+            "difficulty_level": diff_level,
+            "is_critical_region": bool(r["region_index"] == 5),
+            "is_spillover_region": bool(r["region_index"] == 6)
+        })
+
+    # 3. Sentence-level summaries
+    trials_list = list(trials_dict.values())
+    trials_list.sort(key=lambda t: t["presentation_order"])
+    condition_r5_residuals = {}
+
+    for t in trials_list:
+        w_list = t["words"]
+        if w_list:
+            t["mean_rt_ms"] = round(sum(w["rt_ms"] for w in w_list) / len(w_list), 1)
+            t["mean_residual_rt"] = round(sum(w["residual_rt"] for w in w_list) / len(w_list), 1)
+
+            hardest_word = max(w_list, key=lambda w: w["residual_rt"])
+            t["hardest_word"] = {
+                "word_text": hardest_word["word_text"],
+                "residual_rt": hardest_word["residual_rt"],
+                "rt_ms": hardest_word["rt_ms"],
+                "region_index": hardest_word["region_index"]
+            }
+
+            r5_words = [w for w in w_list if w["region_index"] == 5]
+            if r5_words and t["type"] == "experimental":
+                r5_res = round(sum(w["residual_rt"] for w in r5_words) / len(r5_words), 1)
+                t["critical_region_residual"] = r5_res
+                cond = t["condition_label"]
+                condition_r5_residuals.setdefault(cond, []).append(r5_res)
+            else:
+                t["critical_region_residual"] = None
+        else:
+            t["mean_rt_ms"] = 0
+            t["mean_residual_rt"] = 0
+            t["hardest_word"] = None
+            t["critical_region_residual"] = None
+
+    cond_summary = {}
+    for c, vals in condition_r5_residuals.items():
+        cond_summary[c] = round(sum(vals) / len(vals), 1)
+
+    exp_trials = [t for t in trials_list if t["type"] == "experimental"]
+    filler_trials = [t for t in trials_list if t["type"] == "filler"]
+    overall_correct = sum(1 for t in trials_list if t["question_correct"])
+    filler_correct = sum(1 for t in filler_trials if t["question_correct"])
+
+    # Top slowest / hardest words for this participant (sorted by residual slowdown)
+    all_words = []
+    for t in trials_list:
+        for w in t["words"]:
+            if w["is_critical_region"]:
+                context = f"Region 5 Critical Verb Integration in {t['condition_label']}"
+            elif w["region_index"] == 1:
+                context = "Sentence-initial reading / orientation"
+            elif w["is_spillover_region"]:
+                context = "Region 6 Spillover region following Critical Verb"
+            else:
+                context = f"Region {w['region_index']} processing"
+
+            all_words.append({
+                "word_text": w["word_text"],
+                "rt_ms": w["rt_ms"],
+                "predicted_rt": w["predicted_rt"],
+                "residual_rt": w["residual_rt"],
+                "difficulty_level": w["difficulty_level"],
+                "region_index": w["region_index"],
+                "is_critical_region": w["is_critical_region"],
+                "condition_label": t["condition_label"],
+                "trial_presentation_order": t["presentation_order"],
+                "item_number": t["item_number"],
+                "type": t["type"],
+                "sentence_text": t["sentence_text"],
+                "slowdown_reason": context
+            })
+
+    top_slowest_words = sorted(all_words, key=lambda x: x["residual_rt"], reverse=True)[:10]
+    for r, item in enumerate(top_slowest_words, start=1):
+        item["rank"] = r
+
+    # Condition difficulty ranking for this participant
+    part_condition_ranking = []
+    for c, vals in condition_r5_residuals.items():
+        c_trials = [t for t in exp_trials if t["condition_label"] == c]
+        mean_sent_rt = round(sum(t["mean_rt_ms"] for t in c_trials) / max(1, len(c_trials)), 1)
+        mean_sent_res = round(sum(t["mean_residual_rt"] for t in c_trials) / max(1, len(c_trials)), 1)
+        mean_crit_res = round(sum(vals) / len(vals), 1) if vals else 0.0
+
+        part_condition_ranking.append({
+            "condition_label": c,
+            "critical_residual_rt": mean_crit_res,
+            "sentence_residual_rt": mean_sent_res,
+            "sentence_raw_rt": mean_sent_rt,
+            "trials_count": len(c_trials)
+        })
+    part_condition_ranking.sort(key=lambda x: x["critical_residual_rt"], reverse=True)
+    for r, c_entry in enumerate(part_condition_ranking, start=1):
+        c_entry["rank"] = r
+
+    participant_summary = {
+        "participant_id": p_row["id"],
+        "external_id": p_row["external_id"],
+        "list_number": p_row["list_number"],
+        "status": p_row["status"],
+        "completed_at": str(p_row["completed_at"]),
+        "refresh_rate_est": p_row["refresh_rate_est"],
+        "jitter_ms": p_row["jitter_ms"],
+        "total_trials": len(trials_list),
+        "target_trials_count": len(exp_trials),
+        "filler_trials_count": len(filler_trials),
+        "overall_accuracy": round((overall_correct / max(1, len(trials_list))) * 100, 1),
+        "filler_accuracy": round((filler_correct / max(1, len(filler_trials))) * 100, 1),
+        "mean_rt_ms": round(sum(t["mean_rt_ms"] for t in trials_list) / max(1, len(trials_list)), 1)
+    }
+
+    return {
+        "participant": participant_summary,
+        "regression": {
+            "slope": slope,
+            "intercept": intercept,
+            "r_squared": r_squared
+        },
+        "critical_region_summary": cond_summary,
+        "condition_ranking": part_condition_ranking,
+        "top_slowest_words": top_slowest_words,
+        "trials": trials_list
+    }
+
 @app.get("/api/analysis/{experiment_id}/export-csv")
 def export_csv(experiment_id: str):
     """
@@ -867,3 +1239,14 @@ def get_norming_results(experiment_id: str):
         """, (experiment_id,))
         rows = [dict(r) for r in cursor.fetchall()]
         return rows
+
+# ==============================================================================
+# SINGLE-SERVICE CLOUD DEPLOYMENT STATIC SERVING
+# ==============================================================================
+import os
+from fastapi.staticfiles import StaticFiles
+
+_dist_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
+if os.path.exists(_dist_path):
+    app.mount("/", StaticFiles(directory=_dist_path, html=True), name="frontend_static")
+

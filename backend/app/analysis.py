@@ -22,11 +22,20 @@ def compute_spr_analysis(raw_word_events: List[Dict[str, Any]], filler_accuracy_
     """
     if not raw_word_events:
         return {
-            "summary": {"total_events": 0, "analyzed_events": 0, "participants_total": 0, "participants_retained": 0},
+            "summary": {
+                "total_events": 0,
+                "analyzed_events": 0,
+                "participants_total": 0,
+                "participants_retained": 0,
+                "critical_region": 5
+            },
+            "conditions": [],
             "regions": [],
             "anova": None,
             "figure_data": [],
-            "participants_summary": []
+            "participants_summary": [],
+            "condition_accuracy": {},
+            "condition_ranking": []
         }
 
     df = pd.DataFrame(raw_word_events)
@@ -62,8 +71,8 @@ def compute_spr_analysis(raw_word_events: List[Dict[str, Any]], filler_accuracy_
         overall_acc = (all_correct / all_total) if all_total > 0 else 1.0
 
         mean_rt = p_df["rt_ms"].mean() if len(p_df) > 0 else 0
-
-        passed_filter = bool(filler_acc >= filler_accuracy_threshold)
+        has_sufficient_trials = bool(all_total >= 4)
+        passed_filter = bool(filler_acc >= filler_accuracy_threshold and has_sufficient_trials)
 
         participants_summary.append({
             "participant_id": str(pid),
@@ -94,9 +103,15 @@ def compute_spr_analysis(raw_word_events: List[Dict[str, Any]], filler_accuracy_
         if len(p_data) >= 5:
             x = p_data["grapheme_count"].values
             y = p_data["rt_ms"].values
-            slope, intercept, r_val, p_val, std_err = stats.linregress(x, y)
-            predicted_y = intercept + slope * x
-            df_trimmed.loc[p_mask, "residual_rt"] = y - predicted_y
+            try:
+                if len(set(x)) > 1 and np.std(x) > 0:
+                    slope, intercept, r_val, p_val, std_err = stats.linregress(x, y)
+                    predicted_y = intercept + slope * x
+                    df_trimmed.loc[p_mask, "residual_rt"] = y - predicted_y
+                else:
+                    df_trimmed.loc[p_mask, "residual_rt"] = df_trimmed.loc[p_mask, "rt_ms"] - df_trimmed.loc[p_mask, "rt_ms"].mean()
+            except Exception:
+                df_trimmed.loc[p_mask, "residual_rt"] = df_trimmed.loc[p_mask, "rt_ms"] - df_trimmed.loc[p_mask, "rt_ms"].mean()
         else:
             df_trimmed.loc[p_mask, "residual_rt"] = df_trimmed.loc[p_mask, "rt_ms"] - df_trimmed.loc[p_mask, "rt_ms"].mean()
 
@@ -171,6 +186,10 @@ def compute_spr_analysis(raw_word_events: List[Dict[str, Any]], filler_accuracy_
 
             f_inter_f1 = float(table_f1.loc["C(factor_a):C(factor_b)", "F"]) if "C(factor_a):C(factor_b)" in table_f1.index else 0.0
             p_inter_f1 = float(table_f1.loc["C(factor_a):C(factor_b)", "PR(>F)"]) if "C(factor_a):C(factor_b)" in table_f1.index else 1.0
+            if math.isnan(f_inter_f1):
+                f_inter_f1 = 0.0
+            if math.isnan(p_inter_f1):
+                p_inter_f1 = 1.0
 
             df_num_f1 = int(table_f1.loc["C(factor_a):C(factor_b)", "df"]) if "C(factor_a):C(factor_b)" in table_f1.index else 1
             df_den_f1 = int(table_f1.loc["Residual", "df"]) if "Residual" in table_f1.index else max(1, len(retained_participants) - 4)
@@ -180,6 +199,10 @@ def compute_spr_analysis(raw_word_events: List[Dict[str, Any]], filler_accuracy_
             table_f2 = sm.stats.anova_lm(model_f2, typ=2)
             f_inter_f2 = float(table_f2.loc["C(factor_a):C(factor_b)", "F"]) if "C(factor_a):C(factor_b)" in table_f2.index else 0.0
             p_inter_f2 = float(table_f2.loc["C(factor_a):C(factor_b)", "PR(>F)"]) if "C(factor_a):C(factor_b)" in table_f2.index else 1.0
+            if math.isnan(f_inter_f2):
+                f_inter_f2 = 0.0
+            if math.isnan(p_inter_f2):
+                p_inter_f2 = 1.0
             df_den_f2 = int(table_f2.loc["Residual", "df"]) if "Residual" in table_f2.index else 15
 
             anova_result = {
@@ -204,6 +227,68 @@ def compute_spr_analysis(raw_word_events: List[Dict[str, Any]], filler_accuracy_
         except Exception as e:
             anova_result = {"error": str(e), "critical_region": critical_region}
 
+    # 6. Condition-level Comprehension Question Accuracy (Replicating Paper Table 2)
+    condition_accuracy = {}
+    exp_trials_all = df_retained[df_retained["item_type"] == "experimental"].drop_duplicates(subset=["trial_id"])
+    for c in conditions:
+        c_trials = exp_trials_all[exp_trials_all["condition_label"] == c]
+        if len(c_trials) > 0 and "question_correct" in c_trials:
+            p_accs = c_trials.groupby("participant_id")["question_correct"].mean() * 100.0
+            mean_acc = float(p_accs.mean())
+            sem_acc = float(p_accs.sem()) if len(p_accs) > 1 else 0.0
+            condition_accuracy[c] = {
+                "mean_accuracy": round(mean_acc, 1),
+                "sem_accuracy": round(sem_acc, 1) if not math.isnan(sem_acc) else 0.0,
+                "trial_count": len(c_trials)
+            }
+        else:
+            condition_accuracy[c] = {
+                "mean_accuracy": 0.0,
+                "sem_accuracy": 0.0,
+                "trial_count": 0
+            }
+
+    # 7. Overall Condition Processing Time & Difficulty Ranking (All Retained Participants)
+    condition_ranking = []
+    for c in conditions:
+        c_exp = exp_df[exp_df["condition_label"] == c]
+        c_crit = crit_df[crit_df["condition_label"] == c]
+
+        crit_res = float(c_crit["residual_rt"].mean()) if len(c_crit) > 0 else 0.0
+        crit_raw = float(c_crit["rt_ms"].mean()) if len(c_crit) > 0 else 0.0
+        sentence_res = float(c_exp["residual_rt"].mean()) if len(c_exp) > 0 else 0.0
+        sentence_raw = float(c_exp["rt_ms"].mean()) if len(c_exp) > 0 else 0.0
+        acc_info = condition_accuracy.get(c, {})
+
+        label_lower = c.lower()
+        if "np" in label_lower and ("ext" in label_lower or "+extract" in label_lower):
+            role_desc = "Extraction across NP boundary (Maximal memory integration cost)"
+            cognitive_impact = "Highest Cognitive Load"
+        elif ("vp" in label_lower or "clause" in label_lower) and ("ext" in label_lower or "+extract" in label_lower):
+            role_desc = "Extraction across clause (Facilitated by intermediate trace)"
+            cognitive_impact = "Intermediate Facilitation"
+        elif "np" in label_lower:
+            role_desc = "Non-extraction canonical control with NP"
+            cognitive_impact = "Local Baseline"
+        else:
+            role_desc = "Non-extraction canonical control with clause"
+            cognitive_impact = "Fluent Baseline"
+
+        condition_ranking.append({
+            "condition_label": c,
+            "critical_residual_rt": round(crit_res, 1),
+            "critical_raw_rt": round(crit_raw, 1),
+            "sentence_residual_rt": round(sentence_res, 1),
+            "sentence_raw_rt": round(sentence_raw, 1),
+            "accuracy": acc_info.get("mean_accuracy", 0.0),
+            "role_desc": role_desc,
+            "cognitive_impact": cognitive_impact
+        })
+
+    condition_ranking.sort(key=lambda x: x["critical_residual_rt"], reverse=True)
+    for rank, entry in enumerate(condition_ranking, start=1):
+        entry["rank"] = rank
+
     return {
         "summary": {
             "total_events": total_events,
@@ -216,7 +301,9 @@ def compute_spr_analysis(raw_word_events: List[Dict[str, Any]], filler_accuracy_
         "regions": regions,
         "figure_data": figure_data,
         "anova": anova_result,
-        "participants_summary": participants_summary
+        "participants_summary": participants_summary,
+        "condition_accuracy": condition_accuracy,
+        "condition_ranking": condition_ranking
     }
 
 def generate_r_script(experiment_title: str) -> str:

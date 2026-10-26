@@ -74,8 +74,11 @@ def pseudo_randomize_trials(trials: List[Dict[str, Any]], practice_trials: List[
     """
     Randomizes experimental and filler trials under Gibson & Warren (2004) constraints:
     - Practice trials appear first.
-    - No two experimental items of the exact same condition appear consecutively.
-    - Fillers are distributed evenly.
+    - Buffer start: Session begins with a filler so the participant is not tested immediately on trial 1.
+    - Strict target isolation: Every experimental item is separated by at least 1 (typically 1 to 2) fillers.
+      Experimental targets NEVER appear consecutively.
+    - Condition variance: No two consecutive experimental items share the same condition.
+    - Balanced distribution of all 36 fillers and 24 experimental items.
     """
     if practice_trials is None:
         practice_trials = []
@@ -83,77 +86,91 @@ def pseudo_randomize_trials(trials: List[Dict[str, Any]], practice_trials: List[
     exp_trials = [t for t in trials if t.get("type") == "experimental"]
     filler_trials = [t for t in trials if t.get("type") == "filler"]
 
-    # Try up to 50 times to produce a sequence with no consecutive duplicate conditions
-    best_sequence = []
-    
-    for _ in range(50):
-        random.shuffle(exp_trials)
-        random.shuffle(filler_trials)
+    num_exp = len(exp_trials)
+    num_fill = len(filler_trials)
 
-        sequence = []
-        exp_idx = 0
-        fill_idx = 0
-        last_cond = None
-        stuck = False
+    if num_exp == 0:
+        raw_sequence = list(filler_trials)
+        random.shuffle(raw_sequence)
+    elif num_fill == 0:
+        raw_sequence = list(exp_trials)
+        random.shuffle(raw_sequence)
+    else:
+        best_sequence = None
 
-        total_trials = len(exp_trials) + len(filler_trials)
-        
-        while len(sequence) < total_trials:
-            # Decide whether to pick experimental or filler
-            can_pick_exp = (
-                exp_idx < len(exp_trials) and
-                exp_trials[exp_idx]["condition_label"] != last_cond
-            )
+        for attempt in range(100):
+            shuffled_exp = list(exp_trials)
+            random.shuffle(shuffled_exp)
+            shuffled_fill = list(filler_trials)
+            random.shuffle(shuffled_fill)
 
-            # If experimental has same condition as last, check if filler can be inserted
-            if not can_pick_exp and exp_idx < len(exp_trials):
-                # Search ahead in exp_trials for a different condition
-                swapped = False
-                for lookahead in range(exp_idx + 1, len(exp_trials)):
-                    if exp_trials[lookahead]["condition_label"] != last_cond:
-                        exp_trials[exp_idx], exp_trials[lookahead] = exp_trials[lookahead], exp_trials[exp_idx]
-                        can_pick_exp = True
-                        swapped = True
+            # Eliminate adjacent identical conditions in experimental targets
+            valid_exp = True
+            for i in range(len(shuffled_exp) - 1):
+                if shuffled_exp[i].get("condition_label") == shuffled_exp[i + 1].get("condition_label"):
+                    swapped = False
+                    for j in range(i + 2, len(shuffled_exp)):
+                        if (
+                            shuffled_exp[j].get("condition_label") != shuffled_exp[i].get("condition_label")
+                            and (i == 0 or shuffled_exp[j].get("condition_label") != shuffled_exp[i - 1].get("condition_label"))
+                        ):
+                            shuffled_exp[i + 1], shuffled_exp[j] = shuffled_exp[j], shuffled_exp[i + 1]
+                            swapped = True
+                            break
+                    if not swapped:
+                        valid_exp = False
                         break
-                if not swapped and fill_idx < len(filler_trials):
-                    # Force a filler
-                    pass
 
-            # Balance placement of fillers
-            if (len(sequence) % 2 == 1 and fill_idx < len(filler_trials)) or not can_pick_exp:
-                if fill_idx < len(filler_trials):
-                    sequence.append(filler_trials[fill_idx])
-                    fill_idx += 1
-                    last_cond = "filler"
-                elif can_pick_exp:
-                    sequence.append(exp_trials[exp_idx])
-                    last_cond = exp_trials[exp_idx]["condition_label"]
-                    exp_idx += 1
-                else:
-                    stuck = True
-                    break
-            else:
-                if can_pick_exp:
-                    sequence.append(exp_trials[exp_idx])
-                    last_cond = exp_trials[exp_idx]["condition_label"]
-                    exp_idx += 1
-                elif fill_idx < len(filler_trials):
-                    sequence.append(filler_trials[fill_idx])
-                    fill_idx += 1
-                    last_cond = "filler"
-                else:
-                    stuck = True
-                    break
+            if not valid_exp and attempt < 90:
+                continue
 
-        if not stuck and len(sequence) == total_trials:
+            # Case 1: Equal fillers and targets (e.g., 4 targets + 4 fillers)
+            # Produces strict alternation: Filler -> Target -> Filler -> Target ...
+            if num_fill == num_exp:
+                sequence = []
+                for f, e in zip(shuffled_fill, shuffled_exp):
+                    sequence.append(f)
+                    sequence.append(e)
+                best_sequence = sequence
+                break
+
+            # Case 2: More fillers than targets (e.g. 36 fillers + 24 targets)
+            num_slots = num_exp + 1 if num_fill > num_exp else num_exp
+            base_fillers_per_slot = num_fill // num_slots
+            remainder = num_fill % num_slots
+
+            counts = [base_fillers_per_slot] * num_slots
+            extra_slot_indices = list(range(num_slots))
+            random.shuffle(extra_slot_indices)
+            for idx in extra_slot_indices[:remainder]:
+                counts[idx] += 1
+
+            # Build sequence
+            sequence = []
+            fill_idx = 0
+            for s in range(num_slots):
+                for _ in range(counts[s]):
+                    if fill_idx < len(shuffled_fill):
+                        sequence.append(shuffled_fill[fill_idx])
+                        fill_idx += 1
+                if s < len(shuffled_exp):
+                    sequence.append(shuffled_exp[s])
+
+            # Flush any remaining fillers
+            while fill_idx < len(shuffled_fill):
+                sequence.append(shuffled_fill[fill_idx])
+                fill_idx += 1
+
             best_sequence = sequence
             break
 
-    if not best_sequence:
-        # Fallback to standard shuffle
-        all_trials = exp_trials + filler_trials
-        random.shuffle(all_trials)
-        best_sequence = all_trials
+        if not best_sequence:
+            # Fallback
+            all_trials = exp_trials + filler_trials
+            random.shuffle(all_trials)
+            best_sequence = all_trials
+
+        raw_sequence = best_sequence
 
     # Prepend practice trials
     full_sequence = []
@@ -165,7 +182,7 @@ def pseudo_randomize_trials(trials: List[Dict[str, Any]], practice_trials: List[
         full_sequence.append(pt_copy)
         order += 1
 
-    for st in best_sequence:
+    for st in raw_sequence:
         st_copy = dict(st)
         st_copy["presentation_order"] = order
         st_copy["is_practice"] = False
@@ -173,3 +190,4 @@ def pseudo_randomize_trials(trials: List[Dict[str, Any]], practice_trials: List[
         order += 1
 
     return full_sequence
+

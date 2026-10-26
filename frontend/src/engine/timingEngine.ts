@@ -57,6 +57,7 @@ export interface TrialRunResult {
  */
 export class SPRTimingEngine {
   private activeKeydownListener: ((e: KeyboardEvent) => void) | null = null;
+  private activeAdvanceListener: EventListener | null = null;
   private activeVisibilityListener: (() => void) | null = null;
   private lastPressTimestamp = 0;
   private focusLostCount = 0;
@@ -136,11 +137,22 @@ export class SPRTimingEngine {
   }
 
   /**
-   * Waits for a genuine spacebar keydown event.
+   * Waits for a genuine spacebar keydown event or mobile touchscreen advance tap.
    * Rejects keyboard repeat events and debounces chatter (<60ms).
    */
   private waitForSpacebarPress(): Promise<number> {
     return new Promise((resolve) => {
+      const cleanupListeners = () => {
+        if (this.activeKeydownListener) {
+          window.removeEventListener('keydown', this.activeKeydownListener, true);
+          this.activeKeydownListener = null;
+        }
+        if (this.activeAdvanceListener) {
+          window.removeEventListener('vanispr:advance', this.activeAdvanceListener, true);
+          this.activeAdvanceListener = null;
+        }
+      };
+
       const handler = (e: KeyboardEvent) => {
         // Space key check
         if (e.code === 'Space' || e.key === ' ' || e.keyCode === 32) {
@@ -156,15 +168,27 @@ export class SPRTimingEngine {
           if (pressTime - this.lastPressTimestamp < 60) return;
 
           this.lastPressTimestamp = pressTime;
-          window.removeEventListener('keydown', handler, true);
-          this.activeKeydownListener = null;
-
+          cleanupListeners();
           resolve(pressTime);
         }
       };
 
+      const tapHandler: EventListener = (e: Event) => {
+        const ce = e as CustomEvent;
+        const pressTime = ce.detail?.timeStamp || performance.now();
+
+        // Debounce chatter (<60ms)
+        if (pressTime - this.lastPressTimestamp < 60) return;
+
+        this.lastPressTimestamp = pressTime;
+        cleanupListeners();
+        resolve(pressTime);
+      };
+
       this.activeKeydownListener = handler;
+      this.activeAdvanceListener = tapHandler;
       window.addEventListener('keydown', handler, true);
+      window.addEventListener('vanispr:advance', tapHandler, true);
     });
   }
 
@@ -172,6 +196,10 @@ export class SPRTimingEngine {
     if (this.activeKeydownListener) {
       window.removeEventListener('keydown', this.activeKeydownListener, true);
       this.activeKeydownListener = null;
+    }
+    if (this.activeAdvanceListener) {
+      window.removeEventListener('vanispr:advance', this.activeAdvanceListener, true);
+      this.activeAdvanceListener = null;
     }
     if (this.activeVisibilityListener) {
       document.removeEventListener('visibilitychange', this.activeVisibilityListener);

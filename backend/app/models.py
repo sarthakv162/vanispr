@@ -51,6 +51,7 @@ class ParticipantInitRequest(BaseModel):
     refresh_rate_est: Optional[float] = 60.0
     jitter_ms: Optional[float] = 0.0
     background: Optional[Dict[str, Any]] = None
+    trial_mode: Optional[str] = "balanced_8" # 'balanced_8' (4 targets + 4 fillers) or 'full' (all items)
 
 class WordEventInput(BaseModel):
     word_index: int

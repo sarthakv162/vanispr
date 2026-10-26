@@ -142,6 +142,107 @@ export interface ParticipantSummary {
   retained: boolean;
 }
 
+export interface ConditionAccuracy {
+  mean_accuracy: number;
+  sem_accuracy: number;
+  trial_count: number;
+}
+
+export interface WordDetail {
+  word_index: number;
+  region_index: number;
+  word_text: string;
+  rt_ms: number;
+  predicted_rt: number;
+  residual_rt: number;
+  grapheme_count: number;
+  difficulty_level: 'fast' | 'normal' | 'elevated' | 'hard';
+  is_critical_region: boolean;
+  is_spillover_region: boolean;
+}
+
+export interface SentenceTrialDetail {
+  trial_id: string;
+  presentation_order: number;
+  item_number: number;
+  type: 'experimental' | 'filler' | 'practice';
+  condition_label: string;
+  sentence_text: string;
+  question?: string;
+  correct_answer?: string;
+  user_response?: string;
+  question_correct: boolean;
+  question_rt_ms: number;
+  focus_lost_count: number;
+  mean_rt_ms: number;
+  mean_residual_rt: number;
+  critical_region_residual: number | null;
+  hardest_word: {
+    word_text: string;
+    residual_rt: number;
+    rt_ms: number;
+    region_index: number;
+  } | null;
+  words: WordDetail[];
+}
+
+export interface ConditionRankItem {
+  rank: number;
+  condition_label: string;
+  critical_residual_rt: number;
+  critical_raw_rt: number;
+  sentence_residual_rt: number;
+  sentence_raw_rt: number;
+  accuracy?: number;
+  trials_count?: number;
+  role_desc?: string;
+  cognitive_impact?: string;
+}
+
+export interface TopSlowWordItem {
+  rank: number;
+  word_text: string;
+  rt_ms: number;
+  predicted_rt: number;
+  residual_rt: number;
+  difficulty_level: 'fast' | 'normal' | 'elevated' | 'hard';
+  region_index: number;
+  is_critical_region: boolean;
+  condition_label: string;
+  trial_presentation_order: number;
+  item_number: number;
+  type: string;
+  sentence_text: string;
+  slowdown_reason: string;
+}
+
+export interface ParticipantDeepAnalysis {
+  participant: {
+    participant_id: string;
+    external_id: string;
+    list_number: number;
+    status: string;
+    completed_at: string;
+    refresh_rate_est: number;
+    jitter_ms: number;
+    total_trials: number;
+    target_trials_count: number;
+    filler_trials_count: number;
+    overall_accuracy: number;
+    filler_accuracy: number;
+    mean_rt_ms: number;
+  };
+  regression: {
+    slope: number;
+    intercept: number;
+    r_squared: number;
+  };
+  critical_region_summary: Record<string, number>;
+  condition_ranking?: ConditionRankItem[];
+  top_slowest_words?: TopSlowWordItem[];
+  trials: SentenceTrialDetail[];
+}
+
 export interface AnalysisResponse {
   summary: AnalysisSummary;
   conditions: string[];
@@ -149,6 +250,8 @@ export interface AnalysisResponse {
   figure_data: RegionData[];
   anova: AnovaResult | null;
   participants_summary: ParticipantSummary[];
+  condition_accuracy?: Record<string, ConditionAccuracy>;
+  condition_ranking?: ConditionRankItem[];
 }
 
 export interface DashboardData {

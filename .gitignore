@@ -33,3 +33,9 @@ htmlcov/
 .DS_Store
 Thumbs.db
 *.log
+
+# Research Documents & CSV datasets
+*.pdf
+*.csv
+data/
+*Build Plan*.md

@@ -7,6 +7,7 @@ import { AnalysisConsole } from './components/Host/AnalysisConsole';
 import { NormingSurveyManager } from './components/Host/NormingSurveyManager';
 import { BulkCsvImport } from './components/Host/BulkCsvImport';
 import { ParticipantRunner } from './components/Runner/ParticipantRunner';
+import { LoginPage } from './components/Auth/LoginPage';
 import { Experiment } from './types';
 import { api } from './api/client';
 import {
@@ -14,19 +15,96 @@ import {
   FileSpreadsheet, Plus, CheckCircle, RefreshCw
 } from 'lucide-react';
 
-export function App() {
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('ErrorBoundary caught error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'var(--bg-app)',
+          color: 'var(--text-primary)',
+          padding: 24
+        }}>
+          <div className="glass-panel" style={{ maxWidth: 540, padding: 36, textAlign: 'center', borderColor: 'var(--accent-rose)' }}>
+            <div style={{ color: 'var(--accent-rose)', marginBottom: 16 }}>
+              <RefreshCw size={36} style={{ margin: '0 auto' }} />
+            </div>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: 8 }}>
+              Interface Recovered
+            </h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>
+              {this.state.error?.message || 'A temporary view error occurred.'}
+            </p>
+            <button
+              onClick={() => {
+                this.setState({ hasError: false, error: null });
+                window.location.reload();
+              }}
+              className="btn btn-primary"
+            >
+              Reload Interface
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function MainApp() {
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [activeExperiment, setActiveExperiment] = useState<Experiment | null>(null);
   const [isDirectParticipant] = useState<boolean>(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get('participant') === 'true' || params.get('runner') === 'true';
+    return params.get('participant') === 'true' || params.get('runner') === 'true' || window.location.pathname.startsWith('/run');
   });
   const [currentView, setCurrentView] = useState<'host' | 'runner'>(() => {
     const params = new URLSearchParams(window.location.search);
-    return (params.get('participant') === 'true' || params.get('runner') === 'true') ? 'runner' : 'host';
+    return (params.get('participant') === 'true' || params.get('runner') === 'true' || window.location.pathname.startsWith('/run')) ? 'runner' : 'host';
   });
   const [activeTab, setActiveTab] = useState<'dashboard' | 'items' | 'latinsquare' | 'analysis' | 'norming' | 'csv'>('dashboard');
   const [loading, setLoading] = useState(true);
+
+  // Authentication State: Aadya Gupta researcher credentials
+  const [user, setUser] = useState<{ email: string; name: string } | null>(() => {
+    try {
+      const saved = localStorage.getItem('vanispr_auth');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const handleLogout = () => {
+    localStorage.removeItem('vanispr_auth');
+    setUser(null);
+  };
 
   // Theme State: Persist Light / Dark Mode in localStorage
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -57,7 +135,10 @@ export function App() {
 
       if (exps.length > 0) {
         const urlParams = new URLSearchParams(window.location.search);
-        const expFromUrl = urlParams.get('exp');
+        let expFromUrl = urlParams.get('exp');
+        if (!expFromUrl && window.location.pathname.startsWith('/run/')) {
+          expFromUrl = window.location.pathname.replace('/run/', '').split('/')[0].split('?')[0].trim();
+        }
         const targetId = selectId || expFromUrl;
         const toSelect = targetId ? exps.find((e) => e.id === targetId) || exps[0] : exps[0];
 
@@ -126,6 +207,17 @@ export function App() {
           <p style={{ fontSize: '0.85rem', marginTop: 4 }}>Loading Hindi & English psycholinguistic environments...</p>
         </div>
       </div>
+    );
+  }
+
+  // Researcher Authentication Barrier: Protect console unless signed in as Aadya Gupta
+  if (!isDirectParticipant && !user) {
+    return (
+      <LoginPage
+        onLoginSuccess={(loggedUser) => setUser(loggedUser)}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      />
     );
   }
 
@@ -199,6 +291,8 @@ export function App() {
         onSelectExperiment={handleSelectExperiment}
         theme={theme}
         onToggleTheme={toggleTheme}
+        user={user}
+        onLogout={handleLogout}
       />
 
       {/* Main Content Area */}
@@ -232,14 +326,17 @@ export function App() {
               borderRadius: 'var(--radius-md)',
               border: '1px solid var(--border-subtle)',
               overflowX: 'auto',
-              maxWidth: '100%'
+              maxWidth: '100%',
+              gap: 4
             }}>
               <button
                 onClick={() => setActiveTab('dashboard')}
                 className="btn btn-sm"
                 style={{
                   background: activeTab === 'dashboard' ? 'var(--accent-indigo)' : 'transparent',
-                  color: activeTab === 'dashboard' ? '#fff' : 'var(--text-secondary)'
+                  color: activeTab === 'dashboard' ? '#fff' : 'var(--text-secondary)',
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap'
                 }}
               >
                 <LayoutDashboard size={14} /> Telemetry & Dashboard
@@ -250,7 +347,9 @@ export function App() {
                 className="btn btn-sm"
                 style={{
                   background: activeTab === 'items' ? 'var(--accent-indigo)' : 'transparent',
-                  color: activeTab === 'items' ? '#fff' : 'var(--text-secondary)'
+                  color: activeTab === 'items' ? '#fff' : 'var(--text-secondary)',
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap'
                 }}
               >
                 <Edit3 size={14} /> Stimuli & Region Editor
@@ -261,7 +360,9 @@ export function App() {
                 className="btn btn-sm"
                 style={{
                   background: activeTab === 'latinsquare' ? 'var(--accent-indigo)' : 'transparent',
-                  color: activeTab === 'latinsquare' ? '#fff' : 'var(--text-secondary)'
+                  color: activeTab === 'latinsquare' ? '#fff' : 'var(--text-secondary)',
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap'
                 }}
               >
                 <Grid size={14} /> Latin-Square Matrices
@@ -272,7 +373,9 @@ export function App() {
                 className="btn btn-sm"
                 style={{
                   background: activeTab === 'analysis' ? 'var(--accent-indigo)' : 'transparent',
-                  color: activeTab === 'analysis' ? '#fff' : 'var(--text-secondary)'
+                  color: activeTab === 'analysis' ? '#fff' : 'var(--text-secondary)',
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap'
                 }}
               >
                 <TrendingUp size={14} /> Analysis & Figure 1
@@ -283,7 +386,9 @@ export function App() {
                 className="btn btn-sm"
                 style={{
                   background: activeTab === 'norming' ? 'var(--accent-indigo)' : 'transparent',
-                  color: activeTab === 'norming' ? '#fff' : 'var(--text-secondary)'
+                  color: activeTab === 'norming' ? '#fff' : 'var(--text-secondary)',
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap'
                 }}
               >
                 <Award size={14} /> Plausibility Norming
@@ -294,7 +399,9 @@ export function App() {
                 className="btn btn-sm"
                 style={{
                   background: activeTab === 'csv' ? 'var(--accent-indigo)' : 'transparent',
-                  color: activeTab === 'csv' ? '#fff' : 'var(--text-secondary)'
+                  color: activeTab === 'csv' ? '#fff' : 'var(--text-secondary)',
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap'
                 }}
               >
                 <FileSpreadsheet size={14} /> Bulk CSV Import
@@ -443,6 +550,14 @@ export function App() {
         </div>
       )}
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <ErrorBoundary>
+      <MainApp />
+    </ErrorBoundary>
   );
 }
 

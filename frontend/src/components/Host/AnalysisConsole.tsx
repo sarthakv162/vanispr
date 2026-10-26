@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
   TrendingUp, Download, Code, FileText, CheckCircle,
-  AlertCircle, Sliders, RefreshCw, BarChart2
+  AlertCircle, Sliders, RefreshCw, BarChart2, User, Search,
+  ListOrdered, Clock, Flame, Trash2
 } from 'lucide-react';
 import { Experiment, AnalysisResponse } from '../../types';
 import { api } from '../../api/client';
+import { ParticipantDeepDrilldown } from './ParticipantDeepDrilldown';
 
 interface AnalysisConsoleProps {
   experiment: Experiment;
@@ -14,6 +16,48 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
   const [data, setData] = useState<AnalysisResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [metricMode, setMetricMode] = useState<'residual' | 'raw'>('residual');
+  const [analysisView, setAnalysisView] = useState<'group' | 'participant'>('group');
+  const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(null);
+
+  const handleDeleteParticipant = async (participantId: string, externalId: string) => {
+    if (!window.confirm(`Are you sure you want to remove participant "${externalId || participantId}"?\n\nThis will delete their trial entries and reading times from the database. All experiment stimulus items remain intact.`)) {
+      return;
+    }
+    try {
+      await api.deleteParticipant(experiment.id, participantId);
+      if (selectedParticipantId === participantId) {
+        setSelectedParticipantId('');
+      }
+      await fetchAnalysis();
+    } catch (err: any) {
+      alert(`Failed to delete participant: ${err?.message || err}`);
+    }
+  };
+
+  const handleClearNonPilot = async () => {
+    if (!window.confirm(`Clear all custom/test participant entries?\n\nThis removes test runs while keeping baseline benchmark pilots intact so you can run a fresh, clean analysis.`)) {
+      return;
+    }
+    try {
+      const res = await api.clearParticipants(experiment.id, 'non_pilots_only');
+      alert(res.message);
+      await fetchAnalysis();
+    } catch (err: any) {
+      alert(`Failed to clear test participants: ${err?.message || err}`);
+    }
+  };
+
+  const handleSeedPilot = async () => {
+    try {
+      setLoading(true);
+      await api.seedPilotData(experiment.id);
+      await fetchAnalysis();
+    } catch (err: any) {
+      alert(`Failed to seed benchmark pilot dataset: ${err?.message || err}`);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Sliders for Gibson & Warren (2004) exclusion rules
   const [fillerCutoff, setFillerCutoff] = useState<number>(0.75); // 75%
@@ -41,6 +85,10 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
     '+extract_NP': '#f43f5e', // Rose
     '-extract_VP': '#10b981', // Emerald
     '-extract_NP': '#f59e0b', // Amber
+    'ext_clause': '#6366f1',  // Indigo (+extract, VP)
+    'ext_NP': '#f43f5e',      // Rose (+extract, NP)
+    'non_clause': '#10b981',  // Emerald (-extract, VP)
+    'non_NP': '#f59e0b',      // Amber (-extract, NP)
     'correlative_nested': '#6366f1',
     'correlative_canonical': '#10b981',
     'extraposed_nested': '#f43f5e',
@@ -49,8 +97,75 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {/* Top Banner & Export Actions */}
-      <div className="glass-panel" style={{ padding: '24px 32px' }}>
+      {/* View Switcher: Group vs Participant Deep Drilldown */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 12
+      }}>
+        <div style={{
+          display: 'flex',
+          background: 'var(--bg-surface-elevated)',
+          padding: 4,
+          borderRadius: 'var(--radius-md)',
+          border: '1px solid var(--border-subtle)'
+        }}>
+          <button
+            onClick={() => setAnalysisView('group')}
+            className="btn btn-sm"
+            style={{
+              background: analysisView === 'group' ? 'var(--accent-indigo)' : 'transparent',
+              color: analysisView === 'group' ? '#fff' : 'var(--text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontWeight: 600
+            }}
+          >
+            <TrendingUp size={15} /> Group Experiment Analysis (Figure 1 & ANOVA)
+          </button>
+
+          <button
+            onClick={() => {
+              if (!selectedParticipantId && data?.participants_summary?.length) {
+                setSelectedParticipantId(data.participants_summary[0].participant_id);
+              }
+              setAnalysisView('participant');
+            }}
+            className="btn btn-sm"
+            style={{
+              background: analysisView === 'participant' ? 'var(--accent-indigo)' : 'transparent',
+              color: analysisView === 'participant' ? '#fff' : 'var(--text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontWeight: 600
+            }}
+          >
+            <User size={15} /> Participant Deep Analysis & Word Heatmap
+          </button>
+        </div>
+
+        {analysisView === 'participant' && (
+          <span className="badge badge-indigo">
+            Per-sentence & per-word cognitive slowdown peaks
+          </span>
+        )}
+      </div>
+
+      {analysisView === 'participant' ? (
+        <ParticipantDeepDrilldown
+          experimentId={experiment.id}
+          initialParticipantId={selectedParticipantId || undefined}
+          onBackToGroup={() => setAnalysisView('group')}
+          participantsList={data?.participants_summary}
+        />
+      ) : (
+        <>
+          {/* Top Banner & Export Actions */}
+          <div className="glass-panel" style={{ padding: '24px 32px' }}>
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -161,8 +276,30 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
         </div>
       </div>
 
+      {/* Empty State when no participant trials exist */}
+      {data && data.participants_summary.length === 0 && (
+        <div className="glass-panel" style={{ padding: 48, textAlign: 'center' }}>
+          <TrendingUp size={40} color="var(--accent-indigo)" style={{ margin: '0 auto 16px', opacity: 0.8 }} />
+          <h4 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: 8 }}>
+            No Participant Trial Data Yet
+          </h4>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', maxWidth: 520, margin: '0 auto 24px', lineHeight: 1.6 }}>
+            No reaction times or word events are currently recorded for this study. You can launch participant sessions to collect fresh data, or load the balanced 12-participant psycholinguistic benchmark dataset.
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <button
+              onClick={handleSeedPilot}
+              className="btn btn-primary"
+              style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+            >
+              <RefreshCw size={15} /> Seed 12 Pilot Benchmark Participants
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Analysis Chart & ANOVA */}
-      {data && (
+      {data && data.participants_summary.length > 0 && (
         <>
           {/* Interactive Chart Container */}
           <div className="glass-panel" style={{ padding: 28 }}>
@@ -282,7 +419,7 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
                 })}
 
                 {/* Render Condition Paths and Data Points */}
-                {data.conditions.map((cond) => {
+                {(data.conditions || []).map((cond) => {
                   const color = conditionColors[cond] || '#cbd5e1';
                   const points = data.figure_data.map((r, rIdx) => {
                     const stats = r.conditions[cond] || { mean_residual_rt: 0, mean_raw_rt: 350, sem_residual_rt: 0 };
@@ -343,7 +480,7 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
                 marginTop: 14,
                 flexWrap: 'wrap'
               }}>
-                {data.conditions.map((cond) => {
+                {(data.conditions || []).map((cond) => {
                   const color = conditionColors[cond] || '#cbd5e1';
                   return (
                     <div key={cond} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem' }}>
@@ -434,13 +571,215 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
             </div>
           )}
 
+          {/* Table 2 Replication: Percentages of Correctly Answered Comprehension Questions */}
+          {data.condition_accuracy && Object.keys(data.condition_accuracy).length > 0 && (
+            <div className="glass-panel" style={{ padding: 24 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <div>
+                  <h4 style={{ fontSize: '1.05rem', fontWeight: 600 }}>
+                    Table 2 Replication · Comprehension Question Response Accuracy (%)
+                  </h4>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    Accuracy computed exclusively on retained participants for experimental conditions (Standard Error in parentheses)
+                  </p>
+                </div>
+                <span className="badge badge-indigo">Gibson & Warren (2004) Benchmark</span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+                {(data.conditions || []).map((c) => {
+                  const stats = data.condition_accuracy?.[c];
+                  const color = conditionColors[c] || 'var(--accent-indigo)';
+                  return (
+                    <div
+                      key={c}
+                      style={{
+                        padding: '16px',
+                        borderRadius: 'var(--radius-md)',
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        border: '1px solid var(--border-subtle)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 6
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: color }} />
+                        <span className="mono" style={{ fontSize: '0.82rem', fontWeight: 600 }}>{c}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+                        <span style={{ fontSize: '1.45rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {stats ? `${stats.mean_accuracy}%` : 'N/A'}
+                        </span>
+                        {stats && stats.sem_accuracy > 0 && (
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            (SE: ±{stats.sem_accuracy}%)
+                          </span>
+                        )}
+                      </div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        {stats ? `${stats.trial_count} valid trials` : 'No data'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Overall Condition Processing Time & Difficulty Ranking (All Retained Participants) */}
+          {data.condition_ranking && data.condition_ranking.length > 0 && (
+            <div className="glass-panel" style={{ padding: 24 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <ListOrdered size={20} color="var(--accent-indigo)" />
+                    <h4 style={{ fontSize: '1.08rem', fontWeight: 600 }}>
+                      Overall Condition Processing Time & Difficulty Ranking (All Participants)
+                    </h4>
+                    <span className="badge badge-indigo">4-Condition Benchmark</span>
+                  </div>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                    Which conditions take more time to read in general? Ranked from #1 Slowest (Highest Integration Cost) to #4 Fastest (Lowest Integration Cost).
+                  </p>
+                </div>
+              </div>
+
+              {/* Ranking Grid / Table */}
+              <div style={{ overflowX: 'auto', marginBottom: 18 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', textAlign: 'left' }}>
+                      <th style={{ padding: '8px 12px', width: 60 }}>Rank</th>
+                      <th style={{ padding: '8px 12px' }}>Condition</th>
+                      <th style={{ padding: '8px 12px' }}>Critical Verb Residual (R5)</th>
+                      <th style={{ padding: '8px 12px' }}>Critical Verb Raw RT</th>
+                      <th style={{ padding: '8px 12px' }}>Sentence Mean RT</th>
+                      <th style={{ padding: '8px 12px' }}>Comprehension Accuracy</th>
+                      <th style={{ padding: '8px 12px' }}>Cognitive Impact & Syntactic Role</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.condition_ranking.map((cr) => {
+                      const color = conditionColors[cr.condition_label] || 'var(--accent-indigo)';
+                      const isSlowest = cr.rank === 1;
+                      return (
+                        <tr
+                          key={cr.condition_label}
+                          style={{
+                            borderBottom: '1px solid var(--border-subtle)',
+                            background: isSlowest ? 'rgba(244, 63, 94, 0.04)' : 'transparent'
+                          }}
+                        >
+                          <td style={{ padding: '10px 12px', fontWeight: 700 }} className="mono">
+                            <span style={{
+                              display: 'inline-block',
+                              width: 24,
+                              height: 24,
+                              lineHeight: '24px',
+                              textAlign: 'center',
+                              borderRadius: '50%',
+                              background: isSlowest ? 'rgba(244, 63, 94, 0.2)' : 'rgba(255, 255, 255, 0.06)',
+                              color: isSlowest ? 'var(--accent-rose)' : 'var(--text-primary)'
+                            }}>
+                              #{cr.rank}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ width: 10, height: 10, borderRadius: '50%', background: color }} />
+                              <span className="mono" style={{ fontWeight: 700, fontSize: '0.9rem' }}>
+                                {cr.condition_label}
+                              </span>
+                              {isSlowest && (
+                                <span className="badge badge-rose" style={{ fontSize: '0.68rem' }}>
+                                  Slowest Overall
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ padding: '10px 12px', fontWeight: 700 }} className="mono">
+                            <span style={{
+                              color: cr.critical_residual_rt > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)',
+                              fontSize: '0.95rem'
+                            }}>
+                              {cr.critical_residual_rt > 0 ? `+${cr.critical_residual_rt}` : cr.critical_residual_rt} ms
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 12px' }} className="mono">
+                            {cr.critical_raw_rt} ms
+                          </td>
+                          <td style={{ padding: '10px 12px' }} className="mono">
+                            {cr.sentence_raw_rt} ms
+                          </td>
+                          <td style={{ padding: '10px 12px' }} className="mono">
+                            {cr.accuracy !== undefined ? `${cr.accuracy}%` : 'N/A'}
+                          </td>
+                          <td style={{ padding: '10px 12px' }}>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontWeight: 600 }}>
+                              {cr.cognitive_impact}
+                            </div>
+                            <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+                              {cr.role_desc}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Gibson & Warren (2004) Theoretical Explanation Box */}
+              <div style={{
+                background: 'rgba(99, 102, 241, 0.06)',
+                border: '1px solid rgba(99, 102, 241, 0.2)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '14px 18px',
+                fontSize: '0.82rem',
+                color: 'var(--text-primary)',
+                lineHeight: 1.5
+              }}>
+                <div style={{ fontWeight: 700, color: 'var(--accent-indigo)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Flame size={15} /> Why Does One Condition Take More Time in General? (Gibson & Warren 2004 Synthesis)
+                </div>
+                <div>
+                  <strong>Extraction across NP (<code className="mono">ext_NP</code>) takes the most time overall</strong> because the filler-gap dependency must be maintained across an intervening lexical noun phrase boundary with <em>no intermediate trace</em> to refresh it in working memory. When the reader arrives at the critical integration verb (Region 5), retrieving the distant subject incurs the heaviest cognitive integration cost (slowdown peak). In contrast, <strong>extraction across a clause (<code className="mono">ext_clause</code>) is significantly faster</strong> because an intermediate trace inside the embedded clause reactivates the representation in working memory prior to verb integration.
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Participant Retention & Attention Checks Table */}
           <div className="glass-panel" style={{ padding: 24 }}>
-            <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 14 }}>
-              Participant Retention & Attention Filtering ({data.participants_summary.length} Total)
-            </h4>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <h4 style={{ fontSize: '1rem', fontWeight: 600 }}>
+                  Participant Retention & Attention Filtering ({data.participants_summary.length} Total)
+                </h4>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+                  Click any participant to inspect their sentence heatmaps or remove test entries to re-run fresh analysis.
+                </p>
+              </div>
 
-            <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+              <button
+                onClick={handleClearNonPilot}
+                className="btn btn-secondary btn-sm"
+                style={{
+                  fontSize: '0.74rem',
+                  padding: '4px 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  color: 'var(--accent-rose)'
+                }}
+                title="Clear test/ad-hoc participant runs while preserving benchmark pilot data"
+              >
+                <Trash2 size={13} /> Clean Test Runs
+              </button>
+            </div>
+
+            <div style={{ maxHeight: 250, overflowY: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', textAlign: 'left' }}>
@@ -450,11 +789,23 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
                     <th style={{ padding: '6px 10px' }}>Overall Accuracy</th>
                     <th style={{ padding: '6px 10px' }}>Mean RT</th>
                     <th style={{ padding: '6px 10px' }}>Status</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.participants_summary.map((p) => (
-                    <tr key={p.participant_id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <tr
+                      key={p.participant_id}
+                      style={{
+                        borderBottom: '1px solid var(--border-subtle)',
+                        cursor: 'pointer'
+                      }}
+                      className="hover-row"
+                      onClick={() => {
+                        setSelectedParticipantId(p.participant_id);
+                        setAnalysisView('participant');
+                      }}
+                    >
                       <td style={{ padding: '8px 10px', fontWeight: 600 }} className="mono">
                         {p.external_id}
                       </td>
@@ -471,6 +822,48 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
                           {p.retained ? 'Retained' : 'Excluded (<75%)'}
                         </span>
                       </td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, alignItems: 'center' }}>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedParticipantId(p.participant_id);
+                              setAnalysisView('participant');
+                            }}
+                            className="btn btn-secondary btn-sm"
+                            style={{
+                              padding: '3px 8px',
+                              fontSize: '0.74rem',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4
+                            }}
+                          >
+                            <Search size={12} /> Inspect
+                          </button>
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteParticipant(p.participant_id, p.external_id);
+                            }}
+                            className="btn btn-sm"
+                            style={{
+                              padding: '3px 8px',
+                              fontSize: '0.74rem',
+                              background: 'rgba(244, 63, 94, 0.1)',
+                              color: 'var(--accent-rose)',
+                              border: '1px solid rgba(244, 63, 94, 0.3)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4
+                            }}
+                            title={`Remove ${p.external_id} from study`}
+                          >
+                            <Trash2 size={12} /> Remove
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -479,6 +872,8 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
           </div>
         </>
       )}
-    </div>
-  );
+    </>
+  )}
+</div>
+);
 };

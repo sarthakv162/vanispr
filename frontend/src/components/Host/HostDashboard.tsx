@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Users, CheckCircle, Clock, AlertTriangle, BarChart3, ShieldCheck, RefreshCw, Share2, Copy } from 'lucide-react';
+import { Users, CheckCircle, Clock, AlertTriangle, BarChart3, ShieldCheck, RefreshCw, Share2 } from 'lucide-react';
 import { DashboardData, Experiment } from '../../types';
 import { api } from '../../api/client';
 
@@ -101,39 +101,6 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({ experiment, onOpen
             Launch Preview Mode
           </button>
         </div>
-      </div>
-
-      {/* Shareable Participant Link Banner for Non-coder Researchers */}
-      <div style={{
-        background: 'var(--bg-surface-elevated)',
-        border: '1px solid var(--border-subtle)',
-        borderRadius: 'var(--radius-md)',
-        padding: '14px 20px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 16,
-        flexWrap: 'wrap'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Share2 size={16} color="var(--accent-indigo)" />
-          <div>
-            <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-              Direct Link for Study Participants:
-            </span>
-            <span className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginLeft: 8, wordBreak: 'break-all' }}>
-              {participantUrl}
-            </span>
-          </div>
-        </div>
-        <button
-          onClick={handleCopyLink}
-          className="btn btn-secondary btn-sm"
-          style={{ fontSize: '0.78rem', padding: '4px 10px' }}
-        >
-          {copiedLink ? <CheckCircle size={12} color="var(--accent-emerald)" /> : <Copy size={12} />}
-          {copiedLink ? 'Copied' : 'Copy Link'}
-        </button>
       </div>
 
       {/* KPI Cards */}

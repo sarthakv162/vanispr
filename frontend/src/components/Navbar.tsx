@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Activity, Play, Settings, Database, BookOpen, Sun, Moon } from 'lucide-react';
+import { Play, Settings, Sun, Moon, LogOut, UserCheck } from 'lucide-react';
 import { Experiment } from '../types';
 
 interface NavbarProps {
@@ -10,6 +10,8 @@ interface NavbarProps {
   onSelectExperiment: (exp: Experiment) => void;
   theme: 'dark' | 'light';
   onToggleTheme: () => void;
+  user?: { email: string; name: string } | null;
+  onLogout?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -19,7 +21,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   experiments,
   onSelectExperiment,
   theme,
-  onToggleTheme
+  onToggleTheme,
+  user,
+  onLogout
 }) => {
   return (
     <header style={{
@@ -29,7 +33,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       position: 'sticky',
       top: 0,
       zIndex: 50,
-      padding: '12px 24px',
+      padding: '10px 16px',
       transition: 'background-color 0.25s ease, border-color 0.25s ease'
     }}>
       <div style={{
@@ -38,52 +42,54 @@ export const Navbar: React.FC<NavbarProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        gap: 16
+        flexWrap: 'wrap',
+        gap: 12
       }}>
         {/* Brand / Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{
-            width: 40,
-            height: 40,
+            width: 36,
+            height: 36,
             borderRadius: 'var(--radius-md)',
             background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '1.25rem',
+            fontSize: '1.15rem',
             fontWeight: 800,
             color: '#fff',
             boxShadow: '0 0 16px var(--accent-indigo-glow)',
-            fontFamily: 'var(--font-display)'
+            fontFamily: 'var(--font-display)',
+            flexShrink: 0
           }}>
             V
           </div>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: '1.2rem', fontWeight: 800, letterSpacing: '-0.02em', background: 'linear-gradient(135deg, #a5b4fc, #818cf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: '1.1rem', fontWeight: 800, letterSpacing: '-0.02em', background: 'linear-gradient(135deg, #a5b4fc, #818cf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                 VaniSPR
               </span>
-              <span className="badge badge-indigo" style={{ fontSize: '0.68rem', padding: '2px 6px' }}>
-                RESEARCH SUITE
+              <span className="badge badge-indigo" style={{ fontSize: '0.64rem', padding: '1px 5px' }}>
+                SUITE
               </span>
             </div>
-            <p style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
-              Self-Paced Reading Psycholinguistics Platform
+            <p className="nav-desktop-only" style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+              Psycholinguistics Platform
             </p>
           </div>
         </div>
 
         {/* Experiment Selector: Clean Segmented Pill Switcher */}
-        {currentView === 'host' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>Study:</span>
+        {currentView === 'host' && experiments.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }} className="nav-desktop-only">Study:</span>
             <div style={{
               display: 'flex',
               background: 'var(--bg-surface-elevated)',
-              padding: '3px',
+              padding: '2px',
               borderRadius: 'var(--radius-md)',
               border: '1px solid var(--border-subtle)',
-              gap: '4px'
+              gap: '3px'
             }}>
               {experiments.map((exp) => {
                 const isSelected = exp.id === activeExperiment?.id;
@@ -101,8 +107,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                         : 'transparent',
                       color: isSelected ? '#ffffff' : 'var(--text-secondary)',
                       fontWeight: isSelected ? 700 : 500,
-                      fontSize: '0.82rem',
-                      padding: '5px 16px',
+                      fontSize: '0.78rem',
+                      padding: '4px 12px',
                       borderRadius: 'calc(var(--radius-md) - 3px)',
                       boxShadow: isSelected ? '0 2px 8px rgba(0,0,0,0.18)' : 'none',
                       transition: 'all 0.18s ease',
@@ -119,8 +125,26 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         )}
 
-        {/* Right Actions: Theme Toggle & View Switcher */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {/* Right Actions: Theme Toggle, View Switcher, User Avatar & Logout */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {/* User Profile Badge (if logged in) */}
+          {user && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              background: 'var(--bg-surface-elevated)',
+              border: '1px solid var(--border-subtle)',
+              padding: '4px 10px',
+              borderRadius: 'var(--radius-md)',
+              fontSize: '0.78rem',
+              color: 'var(--text-primary)'
+            }} title={`Signed in as ${user.email}`}>
+              <UserCheck size={14} color="var(--accent-indigo)" />
+              <span style={{ fontWeight: 600 }}>{user.name.split(' ')[0]}</span>
+            </div>
+          )}
+
           {/* White Mode / Dark Mode Toggle */}
           <button
             onClick={onToggleTheme}
@@ -129,20 +153,21 @@ export const Navbar: React.FC<NavbarProps> = ({
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 7,
-              padding: '6px 12px',
+              gap: 5,
+              padding: '5px 10px',
+              fontSize: '0.78rem',
               fontWeight: 500
             }}
           >
             {theme === 'dark' ? (
               <>
-                <Sun size={15} color="var(--accent-amber)" />
-                <span>White Mode</span>
+                <Sun size={14} color="var(--accent-amber)" />
+                <span className="nav-desktop-only">White</span>
               </>
             ) : (
               <>
-                <Moon size={15} color="var(--accent-indigo)" />
-                <span>Dark Mode</span>
+                <Moon size={14} color="var(--accent-indigo)" />
+                <span className="nav-desktop-only">Dark</span>
               </>
             )}
           </button>
@@ -151,7 +176,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div style={{
             display: 'flex',
             background: 'var(--bg-surface-elevated)',
-            padding: 4,
+            padding: 3,
             borderRadius: 'var(--radius-md)',
             border: '1px solid var(--border-subtle)'
           }}>
@@ -162,11 +187,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 background: currentView === 'host' ? 'var(--accent-indigo)' : 'transparent',
                 color: currentView === 'host' ? '#fff' : 'var(--text-secondary)',
                 fontWeight: currentView === 'host' ? 600 : 400,
+                fontSize: '0.78rem',
+                padding: '4px 10px',
                 boxShadow: currentView === 'host' ? '0 2px 8px var(--accent-indigo-glow)' : 'none'
               }}
             >
-              <Settings size={14} />
-              Researcher Console
+              <Settings size={13} />
+              <span className="nav-desktop-only">Console</span>
             </button>
 
             <button
@@ -176,13 +203,32 @@ export const Navbar: React.FC<NavbarProps> = ({
                 background: currentView === 'runner' ? 'var(--accent-emerald)' : 'transparent',
                 color: currentView === 'runner' ? '#fff' : 'var(--text-secondary)',
                 fontWeight: currentView === 'runner' ? 600 : 400,
+                fontSize: '0.78rem',
+                padding: '4px 10px',
                 boxShadow: currentView === 'runner' ? '0 2px 8px var(--accent-emerald-glow)' : 'none'
               }}
             >
-              <Play size={14} />
-              Participant Runner
+              <Play size={13} />
+              <span className="nav-desktop-only">Runner</span>
             </button>
           </div>
+
+          {/* Logout Button */}
+          {user && onLogout && (
+            <button
+              onClick={onLogout}
+              className="btn btn-secondary btn-sm"
+              title="Sign Out of Researcher Console"
+              style={{
+                padding: '5px 8px',
+                color: 'var(--accent-rose)',
+                borderColor: 'rgba(244, 63, 94, 0.3)',
+                fontSize: '0.78rem'
+              }}
+            >
+              <LogOut size={14} />
+            </button>
+          )}
         </div>
       </div>
     </header>

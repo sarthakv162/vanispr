@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Monitor, Smartphone, AlertCircle, ArrowRight } from 'lucide-react';
+import { Smartphone, Monitor, ArrowRight, CheckCircle2 } from 'lucide-react';
 
 interface DeviceGateProps {
   children: React.ReactNode;
@@ -7,7 +7,9 @@ interface DeviceGateProps {
 
 export const DeviceGate: React.FC<DeviceGateProps> = ({ children }) => {
   const [isTouchDevice, setIsTouchDevice] = useState(false);
-  const [bypass, setBypass] = useState(false);
+  const [bypass, setBypass] = useState(() => {
+    return sessionStorage.getItem('vanispr_mobile_bypass') === 'true';
+  });
 
   useEffect(() => {
     // Detect mobile touch screen
@@ -20,6 +22,11 @@ export const DeviceGate: React.FC<DeviceGateProps> = ({ children }) => {
     setIsTouchDevice(hasTouch && isSmallScreen);
   }, []);
 
+  const handleContinueMobile = () => {
+    sessionStorage.setItem('vanispr_mobile_bypass', 'true');
+    setBypass(true);
+  };
+
   if (isTouchDevice && !bypass) {
     return (
       <div style={{
@@ -27,56 +34,75 @@ export const DeviceGate: React.FC<DeviceGateProps> = ({ children }) => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: 24,
+        padding: '24px 16px',
         background: 'var(--bg-main)',
         color: 'var(--text-primary)'
       }}>
         <div className="glass-panel" style={{
-          maxWidth: 480,
-          padding: 36,
+          maxWidth: 460,
+          padding: '32px 24px',
           textAlign: 'center',
           borderRadius: 'var(--radius-xl)',
-          border: '1px solid var(--border-subtle)'
+          border: '1px solid var(--border-subtle)',
+          boxShadow: 'var(--shadow-lg)'
         }}>
           <div style={{
-            width: 64,
-            height: 64,
+            width: 60,
+            height: 60,
             borderRadius: '50%',
-            background: 'rgba(244, 63, 94, 0.15)',
-            border: '1px solid rgba(244, 63, 94, 0.3)',
+            background: 'rgba(99, 102, 241, 0.15)',
+            border: '1px solid rgba(99, 102, 241, 0.35)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            margin: '0 auto 20px'
+            margin: '0 auto 16px',
+            color: 'var(--accent-indigo)'
           }}>
-            <Monitor size={32} color="var(--accent-rose)" />
+            <Smartphone size={30} />
           </div>
 
-          <h2 style={{ fontSize: '1.35rem', fontWeight: 700, marginBottom: 12 }}>
-            Physical Keyboard Required
+          <h2 style={{ fontSize: '1.3rem', fontWeight: 700, marginBottom: 10 }}>
+            Mobile Phone Mode
           </h2>
 
-          <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 24 }}>
-            To measure reaction times with sub-millisecond precision, this Self-Paced Reading study requires a desktop or laptop computer with a physical keyboard. Touchscreen phones and tablets are not supported.
+          <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 18 }}>
+            You are viewing VaniSPR on a mobile device. Tap-to-advance mode is fully supported so you can participate directly from your phone.
           </p>
 
           <div style={{
             background: 'var(--bg-surface-elevated)',
-            padding: '12px 16px',
+            border: '1px solid var(--border-subtle)',
+            padding: '12px 14px',
             borderRadius: 'var(--radius-md)',
-            fontSize: '0.82rem',
+            fontSize: '0.78rem',
             color: 'var(--text-muted)',
-            marginBottom: 24
+            lineHeight: 1.5,
+            marginBottom: 22,
+            textAlign: 'left'
           }}>
-            Please open this link on your computer browser (Chrome, Firefox, Safari, or Edge).
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--accent-indigo)', fontWeight: 600, marginBottom: 4 }}>
+              <Monitor size={14} /> Researcher Recommendation:
+            </div>
+            For publication-grade cognitive timing, a computer with a physical keyboard is recommended, but you may proceed seamlessly on this phone.
           </div>
 
           <button
-            onClick={() => setBypass(true)}
-            className="btn btn-secondary btn-sm"
-            style={{ fontSize: '0.75rem', opacity: 0.6 }}
+            onClick={handleContinueMobile}
+            className="btn btn-primary"
+            style={{
+              width: '100%',
+              padding: '12px 18px',
+              fontSize: '0.92rem',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              boxShadow: '0 4px 14px var(--accent-indigo-glow)'
+            }}
           >
-            Developer Bypass (Test on Touchscreen)
+            <span>Continue on Phone (Tap Mode)</span>
+            <ArrowRight size={16} />
           </button>
         </div>
       </div>
