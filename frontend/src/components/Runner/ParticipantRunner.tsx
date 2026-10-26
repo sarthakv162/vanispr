@@ -42,6 +42,9 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
   const handleStartPractice = async () => {
     setLoadingSession(true);
     try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const trialMode = urlParams.get('mode') === 'full' ? 'full' : 'balanced_8';
+
       const initData = await api.initRunnerSession({
         experiment_id: experiment.id,
         external_id: demographics?.externalId,
@@ -50,7 +53,8 @@ export const ParticipantRunner: React.FC<ParticipantRunnerProps> = ({
         user_agent: navigator.userAgent,
         refresh_rate_est: calibrationData.refreshRate,
         jitter_ms: calibrationData.jitterMs,
-        background: demographics
+        background: demographics,
+        trial_mode: trialMode
       });
 
       setSession(initData);

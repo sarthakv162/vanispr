@@ -92,6 +92,7 @@ export const api = {
     refresh_rate_est: number;
     jitter_ms: number;
     background?: Record<string, any>;
+    trial_mode?: string;
   }): Promise<RunnerSessionInit> {
     const res = await fetch(`${BASE_URL}/runner/init`, {
       method: 'POST',
