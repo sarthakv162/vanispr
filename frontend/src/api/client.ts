@@ -67,14 +67,17 @@ export const api = {
     return res.json();
   },
 
-  async uploadCsv(experimentId: string, file: File): Promise<{ message: string }> {
+  async uploadCsv(experimentId: string, file: File, clearExisting: boolean = false): Promise<{ message: string; imported_rows?: number; items_count?: number; lists_count?: number; conditions?: string[] }> {
     const formData = new FormData();
     formData.append('file', file);
-    const res = await fetch(`${BASE_URL}/experiments/${experimentId}/import-csv`, {
+    const res = await fetch(`${BASE_URL}/experiments/${experimentId}/import-csv?clear_existing=${clearExisting}`, {
       method: 'POST',
       body: formData
     });
-    if (!res.ok) throw new Error('Failed to upload CSV');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to upload CSV');
+    }
     return res.json();
   },
 

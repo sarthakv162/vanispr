@@ -12,23 +12,23 @@ export const BulkCsvImport: React.FC<BulkCsvImportProps> = ({ experiment, onRefr
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [resultMsg, setResultMsg] = useState<string | null>(null);
+  const [replaceExisting, setReplaceExisting] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleDownloadSample = () => {
     let sampleContent = '';
     if (experiment.language === 'hi') {
-      sampleContent = `item_number,type,condition_label,sentence,question,correct_answer,explanation
-1,experimental,correlative_nested,जिस पत्रकार ने | मंत्री जी के उस बयान को | सुना था | उसने आज | नया लेख लिखा।,क्या पत्रकार ने लेख लिखा?,yes,पत्रकार ने सुबह लेख लिखा था।
-1,experimental,correlative_canonical,उस पत्रकार ने | जिसने मंत्री जी के बयान को | सुना था | आज नया लेख प्रकाशित किया।,क्या पत्रकार ने भाषण दिया?,no,उसने भाषण नहीं लेख दिया।
-901,filler,filler,गाँव के किसानों ने | इस वर्ष मंडी में | बहुत अच्छी कीमत पर | फसल बेची।,क्या किसानों ने फसल बेची?,yes,किसानों ने फसल मंडी में बेची।
-801,practice,practice,रोहन ने | सुबह बाज़ार जाकर | ताज़े फल खरीदे।,क्या रोहन बाज़ार गया?,yes,रोहन बाज़ार फल खरीदने गया।
+      sampleContent = `list,id,type,condition,sentence,regions,question,answer
+A,item01,item,ext_clause,"वह मैनेजर जिसे सलाहकार ने सोचा कि नए प्रस्ताव ने खुश किया था, कल पाँच मज़दूर रखेगा।",वह मैनेजर जिसे | सलाहकार ने सोचा | कि | नए प्रस्ताव ने | खुश किया था | कल पाँच मज़दूर रखेगा,क्या सलाहकार कल पाँच मज़दूर रखेगा?,नहीं
+A,item02,item,ext_NP,"वह जनरल जिसे सिपाही के कड़े संदेश के बारे में सहायक की मान्यता ने नाराज़ किया था, शांत दिखने की कोशिश कर रहा है।",वह जनरल जिसे | सिपाही के कड़े संदेश के बारे में | सहायक की मान्यता ने | नाराज़ किया था | शांत दिखने की कोशिश कर रहा है,क्या जनरल शांत दिखने की कोशिश कर रहा है?,हाँ
+A,F01,filler,,बारिश शुरू होते ही बच्चे छत पर चढ़ गए।,,क्या बच्चे छत पर चढ़ गए?,हाँ
+B,item01,item,ext_NP,"वह मैनेजर जिसे नए प्रस्ताव के बारे में सलाहकार की सोच ने खुश किया था, कल पाँच मज़दूर रखेगा।",वह मैनेजर जिसे | नए प्रस्ताव के बारे में | सलाहकार की सोच ने | खुश किया था | कल पाँच मज़दूर रखेगा,क्या सलाहकार कल पाँच मज़दूर रखेगा?,नहीं
 `;
     } else {
-      sampleContent = `item_number,type,condition_label,sentence,question,correct_answer,explanation
-1,experimental,+extract_VP,The manager who | the consultant | claimed that | the new proposal | had pleased | will hire | five workers tomorrow.,Did the proposal please the consultant?,yes,The text mentions it pleased them.
-1,experimental,+extract_NP,The manager who | the consultant's claim about | the new proposal | had pleased | will hire | five workers tomorrow.,Did the consultant object?,no,They made a claim about the proposal.
-901,filler,filler,The chef | prepared a lavish dinner | for eighty guests | at the grand hotel ballroom.,Did the chef prepare dinner?,yes,Dinner was prepared for guests.
-801,practice,practice,Alice walked | across campus | to borrow three books | from the university library.,Did Alice borrow books?,yes,Alice borrowed three books.
+      sampleContent = `list,id,type,condition,sentence,regions,question,answer
+A,item01,item,+extract_VP,"The manager who the consultant claimed that the new proposal had pleased will hire five workers tomorrow.",The manager who | the consultant | claimed that | the new proposal | had pleased | will hire | five workers tomorrow,Did the proposal please the consultant?,yes
+A,item02,item,+extract_NP,"The general who the assistant's belief about the soldier's message had upset was trying to stay calm.",The general who | the assistant's belief | about the soldier's message | had upset | was trying to stay calm,Was the general trying to stay calm?,yes
+A,F01,filler,,"As soon as the rain started, the children went up to the roof.",,,Did the children go up to the roof?,yes
 `;
     }
 
@@ -49,7 +49,7 @@ export const BulkCsvImport: React.FC<BulkCsvImportProps> = ({ experiment, onRefr
     setErrorMsg(null);
 
     try {
-      const res = await api.uploadCsv(experiment.id, file);
+      const res = await api.uploadCsv(experiment.id, file, replaceExisting);
       setResultMsg(res.message);
       setFile(null);
       onRefresh();
@@ -72,15 +72,25 @@ export const BulkCsvImport: React.FC<BulkCsvImportProps> = ({ experiment, onRefr
               </h3>
             </div>
             <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', maxWidth: 750 }}>
-              Import 20–100 items from spreadsheet software. Supports optional pipe (<code>|</code>) delimiters for multi-word regions
-              (e.g., <code>The manager who | claimed that</code> or Hindi postpositions <code>राम ने | फल खरीदे</code>), auto-normalizes
-              Devanagari Unicode to NFC, and generates balanced word boundaries.
+              Directly ingest your research spreadsheet. Supports multi-list Latin Square rotation (columns: <code>list, id, type, condition, sentence, regions, question, answer</code>),
+              explicit pipe (<code>|</code>) region boundaries, Hindi answers (<code>हाँ</code> / <code>नहीं</code>), and automatic Devanagari Unicode NFC normalization.
             </p>
           </div>
 
-          <button onClick={handleDownloadSample} className="btn btn-secondary btn-sm">
-            <Download size={14} /> Download Sample CSV
-          </button>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {experiment.language === 'hi' && (
+              <a
+                href="/hindi_spr_stimuli_full.csv"
+                download="hindi_spr_stimuli_full_240.csv"
+                className="btn btn-secondary btn-sm"
+              >
+                <Download size={14} /> Full 240-Row Study CSV
+              </a>
+            )}
+            <button onClick={handleDownloadSample} className="btn btn-secondary btn-sm">
+              <Download size={14} /> Download Sample Template
+            </button>
+          </div>
         </div>
       </div>
 
@@ -122,8 +132,28 @@ export const BulkCsvImport: React.FC<BulkCsvImportProps> = ({ experiment, onRefr
           </span>
         </label>
 
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 10,
+          marginTop: 18,
+          marginBottom: 10
+        }}>
+          <input
+            type="checkbox"
+            id="replace-existing-check"
+            checked={replaceExisting}
+            onChange={(e) => setReplaceExisting(e.target.checked)}
+            style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent-indigo)' }}
+          />
+          <label htmlFor="replace-existing-check" style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+            Replace existing items in this study with imported CSV (Recommended for complete studies)
+          </label>
+        </div>
+
         {file && (
-          <div style={{ marginTop: 20 }}>
+          <div style={{ marginTop: 16 }}>
             <button
               onClick={handleUpload}
               disabled={uploading}

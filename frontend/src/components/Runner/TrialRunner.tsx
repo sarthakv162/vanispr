@@ -108,8 +108,9 @@ export const TrialRunner: React.FC<TrialRunnerProps> = ({
         if (chosen) {
           e.preventDefault();
           const qRt = performance.now() - questionStartTime;
-          const correctAns = (currentTrial.correct_answer || 'yes').toLowerCase();
-          const isCorrect = chosen === correctAns ? 1 : 0;
+          const rawAns = (currentTrial.correct_answer || 'yes').trim().toLowerCase();
+          const isYesTarget = ['yes', 'y', 'हाँ', 'haan', 'true', '1'].includes(rawAns);
+          const isCorrect = (chosen === 'yes' && isYesTarget) || (chosen === 'no' && !isYesTarget) ? 1 : 0;
 
           if (isCorrect) allTrialsCorrectCount.current++;
 

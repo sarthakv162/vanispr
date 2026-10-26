@@ -4,6 +4,7 @@ FastAPI implementation supporting Gibson & Warren (2004) Self-Paced Reading meth
 first-class Hindi Devanagari text processing, Latin-Square balancing, and scientific statistical analysis.
 """
 import io
+import re
 import csv
 import json
 import uuid
@@ -209,77 +210,237 @@ def delete_item(experiment_id: str, item_id: str):
 # ==============================================================================
 
 @app.post("/api/experiments/{experiment_id}/import-csv")
-async def bulk_import_csv(experiment_id: str, file: UploadFile = File(...)):
+async def bulk_import_csv(
+    experiment_id: str,
+    clear_existing: bool = Query(False),
+    file: UploadFile = File(...)
+):
     """
-    Import items from CSV with format:
-    item_number, type, condition_label, sentence, question, correct_answer, explanation
-    Regions are auto-generated word-by-word with Unicode NFC normalization.
+    Import items from CSV. Supports:
+    1. Research Multi-List format: list, id, type, condition, sentence, regions, question, answer
+    2. Standard format: item_number, type, condition_label, sentence, question, correct_answer, explanation
+    Auto-detects multi-word regions with '|', normalizes Devanagari to Unicode NFC,
+    maps Hindi answers (हाँ/नहीं), and configures Latin-Square lists if 'list' column is present.
     """
     contents = await file.read()
     try:
         decoded = contents.decode("utf-8-sig")
     except UnicodeDecodeError:
-        decoded = contents.decode("latin-1")
+        try:
+            decoded = contents.decode("utf-8")
+        except UnicodeDecodeError:
+            decoded = contents.decode("latin-1")
 
     reader = csv.DictReader(io.StringIO(decoded))
-    imported_count = 0
+    imported_rows = 0
+    unique_items_seen = set()
+    conditions_seen = set()
+    list_mappings: Dict[int, List[str]] = {}
+
+    def get_field(norm_row: dict, *keys: str) -> str:
+        for k in keys:
+            v = norm_row.get(k)
+            if v is not None and str(v).strip() != "":
+                return str(v).strip()
+        return ""
 
     with get_db() as conn:
         cursor = conn.cursor()
-        for row in reader:
-            item_num = int(row.get("item_number", imported_count + 1))
-            item_type = row.get("type", "experimental").strip().lower()
-            cond_label = row.get("condition_label", "default").strip()
-            sentence = unicodedata.normalize("NFC", row.get("sentence", "").strip())
-            question = row.get("question", "").strip() or None
-            correct_ans = row.get("correct_answer", "").strip().lower() or None
-            explanation = row.get("explanation", "").strip() or None
 
-            if not sentence:
+        # Check if experiment exists
+        cursor.execute("SELECT id FROM experiments WHERE id = ?", (experiment_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Experiment not found")
+
+        if clear_existing:
+            cursor.execute("DELETE FROM items WHERE experiment_id = ?", (experiment_id,))
+            cursor.execute("DELETE FROM lists WHERE experiment_id = ?", (experiment_id,))
+
+        for row in reader:
+            if not row:
+                continue
+            norm_row = {k.strip().lower() if k else "": v for k, v in row.items()}
+
+            raw_sentence = get_field(norm_row, "sentence", "sentence_text", "text")
+            raw_regions = get_field(norm_row, "regions", "region_text", "region")
+            if not raw_sentence and not raw_regions:
                 continue
 
-            # Check if item_number already exists in this experiment
+            imported_rows += 1
+
+            # 1. Parse List Assignment (if provided)
+            raw_list = get_field(norm_row, "list", "list_number", "list_num", "group")
+            list_num = None
+            if raw_list:
+                if raw_list.isdigit():
+                    list_num = int(raw_list)
+                else:
+                    first_char = raw_list[0].upper()
+                    if "A" <= first_char <= "Z":
+                        list_num = ord(first_char) - ord("A") + 1
+
+            # 2. Parse Item ID & Item Type
+            raw_id = get_field(norm_row, "id", "item_id", "item_number", "item", "item_no")
+            raw_type = get_field(norm_row, "type", "item_type").lower()
+
+            if raw_type in ["item", "experimental", "exp"]:
+                item_type = "experimental"
+            elif raw_type in ["filler", "fill"]:
+                item_type = "filler"
+            elif raw_type in ["practice", "prac"]:
+                item_type = "practice"
+            else:
+                if raw_id.lower().startswith("f"):
+                    item_type = "filler"
+                elif raw_id.lower().startswith("p"):
+                    item_type = "practice"
+                else:
+                    item_type = "experimental"
+
+            digits = re.findall(r"\d+", raw_id)
+            if digits:
+                parsed_num = int(digits[0])
+            else:
+                parsed_num = imported_rows
+
+            if item_type == "filler":
+                item_num = 900 + parsed_num if parsed_num < 900 else parsed_num
+            elif item_type == "practice":
+                item_num = 800 + parsed_num if parsed_num < 800 else parsed_num
+            else:
+                item_num = parsed_num
+
+            # 3. Parse Condition Label
+            cond_str = get_field(norm_row, "condition", "condition_label", "condition_name", "cond")
+            if cond_str:
+                cond_label = cond_str
+            elif item_type == "filler":
+                cond_label = "filler"
+            elif item_type == "practice":
+                cond_label = "practice"
+            else:
+                cond_label = "default"
+
+            if item_type == "experimental":
+                conditions_seen.add(cond_label)
+
+            # 4. Parse Question & Answer
+            raw_question = get_field(norm_row, "question", "question_text", "comp_question") or None
+            raw_answer = get_field(norm_row, "answer", "correct_answer", "correct_ans", "response")
+            explanation = get_field(norm_row, "explanation", "explanation_text", "notes") or None
+
+            ans_lower = raw_answer.lower()
+            if ans_lower in ["हाँ", "haan", "yes", "y", "true", "1", "t"]:
+                correct_ans = "yes"
+            elif ans_lower in ["नहीं", "nahin", "no", "n", "false", "0", "f"]:
+                correct_ans = "no"
+            elif raw_answer:
+                correct_ans = raw_answer
+            else:
+                correct_ans = None
+
+            # 5. Parse Regions and Sentence (NFC normalized)
+            regions_src = raw_regions if ("|" in raw_regions) else raw_sentence
+            if "|" in regions_src:
+                raw_chunks = [c.strip() for c in regions_src.split("|") if c.strip()]
+                regions = []
+                clean_words = []
+                for idx, chunk in enumerate(raw_chunks):
+                    chunk_nfc = unicodedata.normalize("NFC", chunk)
+                    c_words = chunk_nfc.split()
+                    clean_words.extend(c_words)
+                    regions.append({
+                        "index": idx + 1,
+                        "text": chunk_nfc,
+                        "words": c_words
+                    })
+                if raw_sentence and "|" not in raw_sentence:
+                    clean_sentence = unicodedata.normalize("NFC", raw_sentence)
+                else:
+                    clean_sentence = " ".join(clean_words)
+            else:
+                clean_sentence = unicodedata.normalize("NFC", raw_sentence or raw_regions)
+                clean_words = clean_sentence.split()
+                regions = [{"index": idx + 1, "text": w, "words": [w]} for idx, w in enumerate(clean_words)]
+
+            # 6. Database Upsert: Item
             cursor.execute("SELECT id FROM items WHERE experiment_id = ? AND item_number = ?", (experiment_id, item_num))
             existing_item = cursor.fetchone()
 
             if existing_item:
                 item_id = existing_item["id"]
+                if raw_question:
+                    cursor.execute("""
+                    UPDATE items SET question = ?, correct_answer = ?, explanation = COALESCE(?, explanation)
+                    WHERE id = ?
+                    """, (raw_question, correct_ans, explanation, item_id))
             else:
                 item_id = f"item_{uuid.uuid4().hex[:10]}"
                 cursor.execute("""
                 INSERT INTO items (id, experiment_id, item_number, type, question, correct_answer, explanation)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (item_id, experiment_id, item_num, item_type, question, correct_ans, explanation))
+                """, (item_id, experiment_id, item_num, item_type, raw_question, correct_ans, explanation))
 
-            # Support explicit pipe-delimited regions (e.g. "Region 1 | Region 2 | Region 3") or fallback to word-by-word
-            if "|" in sentence:
-                raw_chunks = [c.strip() for c in sentence.split("|") if c.strip()]
-                regions = []
-                clean_words = []
-                for idx, chunk in enumerate(raw_chunks):
-                    c_words = chunk.split()
-                    clean_words.extend(c_words)
-                    regions.append({
-                        "index": idx + 1,
-                        "text": chunk,
-                        "words": c_words
-                    })
-                clean_sentence = " ".join(clean_words)
-            else:
-                clean_words = sentence.split()
-                regions = [{"index": idx + 1, "text": w, "words": [w]} for idx, w in enumerate(clean_words)]
-                clean_sentence = sentence
-            
-            v_id = f"ver_{uuid.uuid4().hex[:10]}"
+            unique_items_seen.add(item_id)
+
+            # 7. Database Upsert: Item Version
+            cursor.execute("SELECT id FROM item_versions WHERE item_id = ? AND condition_label = ?", (item_id, cond_label))
+            existing_ver = cursor.fetchone()
+
             grapheme_count = len(clean_sentence.replace(" ", ""))
-            cursor.execute("""
-            INSERT INTO item_versions (id, item_id, condition_label, sentence_text, regions_json, word_count, grapheme_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (v_id, item_id, cond_label, clean_sentence, json.dumps(regions), len(clean_words), grapheme_count))
-            
-            imported_count += 1
+            if existing_ver:
+                v_id = existing_ver["id"]
+                cursor.execute("""
+                UPDATE item_versions SET sentence_text = ?, regions_json = ?, word_count = ?, grapheme_count = ?
+                WHERE id = ?
+                """, (clean_sentence, json.dumps(regions), len(clean_words), grapheme_count, v_id))
+            else:
+                v_id = f"ver_{uuid.uuid4().hex[:10]}"
+                cursor.execute("""
+                INSERT INTO item_versions (id, item_id, condition_label, sentence_text, regions_json, word_count, grapheme_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (v_id, item_id, cond_label, clean_sentence, json.dumps(regions), len(clean_words), grapheme_count))
 
-    return {"message": f"Successfully processed {imported_count} item versions"}
+            # 8. Record List Mapping if 'list' was specified
+            if list_num is not None:
+                if list_num not in list_mappings:
+                    list_mappings[list_num] = []
+                list_mappings[list_num].append(v_id)
+
+        # 9. If CSV explicitly specified Lists (e.g. Lists A, B, C, D), configure them
+        if list_mappings:
+            cursor.execute("DELETE FROM lists WHERE experiment_id = ?", (experiment_id,))
+            for l_num, v_ids in sorted(list_mappings.items()):
+                new_list_id = f"list_{uuid.uuid4().hex[:10]}"
+                cursor.execute("INSERT INTO lists (id, experiment_id, list_number) VALUES (?, ?, ?)",
+                               (new_list_id, experiment_id, l_num))
+                for order_hint, v_id in enumerate(v_ids):
+                    cursor.execute("""
+                    INSERT INTO list_items (id, list_id, item_version_id, order_hint)
+                    VALUES (?, ?, ?, ?)
+                    """, (str(uuid.uuid4()), new_list_id, v_id, order_hint + 1))
+
+        # 10. Auto-update experiment factors if experimental conditions were detected
+        if conditions_seen:
+            cursor.execute("SELECT id FROM factors WHERE experiment_id = ? AND name = 'Condition'", (experiment_id,))
+            f_row = cursor.fetchone()
+            levels_json = json.dumps(sorted(list(conditions_seen)))
+            if f_row:
+                cursor.execute("UPDATE factors SET levels_json = ? WHERE id = ?", (levels_json, f_row["id"]))
+            else:
+                cursor.execute("""
+                INSERT INTO factors (id, experiment_id, name, levels_json)
+                VALUES (?, ?, 'Condition', ?)
+                """, (f"fac_{uuid.uuid4().hex[:8]}", experiment_id, levels_json))
+
+    lists_configured_msg = f" and {len(list_mappings)} Latin-Square lists configured" if list_mappings else ""
+    return {
+        "message": f"Successfully processed {imported_rows} rows: {len(unique_items_seen)} items{lists_configured_msg} with Devanagari NFC validation.",
+        "imported_rows": imported_rows,
+        "items_count": len(unique_items_seen),
+        "lists_count": len(list_mappings),
+        "conditions": sorted(list(conditions_seen))
+    }
 
 @app.post("/api/experiments/{experiment_id}/generate-lists")
 def generate_lists_endpoint(experiment_id: str):
