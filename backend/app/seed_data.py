@@ -46,7 +46,7 @@ def seed_database():
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             exp1_id, host_id,
-            "Gibson & Warren (2004) Wh-Extraction Replication",
+            "English Gibson & Warren (2004) Benchmark",
             "Direct replication of the 2x2 filler-gap dependency vs intermediate phrase type paradigm (Syntax 7:1, 55-78).",
             "en", "live", "gibson_warren_2x2", 1,
             json.dumps(exp1_factors),
@@ -308,7 +308,7 @@ def seed_database():
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             exp2_id, host_id,
-            "हिंदी संबंधवाचक-सहसंबंधी उपवाक्य पठन अध्ययन (Hindi Relative-Correlative SPR)",
+            "Hindi Relative-Correlative Study (संबंधवाचक-सहसंबंधी)",
             "Hindi SOV psycholinguistic paradigm investigating filler-gap locality and case marker integration in relative-correlative structures.",
             "hi", "live", "hindi_correlative_2x2", 1,
             json.dumps(exp2_factors),

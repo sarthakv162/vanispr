@@ -73,35 +73,49 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Experiment Selector */}
+        {/* Experiment Selector: Clean Segmented Pill Switcher */}
         {currentView === 'host' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Study:</span>
-            <select
-              className="select"
-              style={{
-                width: 320,
-                padding: '6px 12px',
-                fontSize: '0.82rem',
-                fontWeight: 500,
-                background: 'var(--bg-surface-elevated)'
-              }}
-              value={activeExperiment?.id || ''}
-              onChange={(e) => {
-                const found = experiments.find((exp) => exp.id === e.target.value);
-                if (found) onSelectExperiment(found);
-              }}
-            >
+            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>Study:</span>
+            <div style={{
+              display: 'flex',
+              background: 'var(--bg-surface-elevated)',
+              padding: '3px',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border-subtle)',
+              gap: '4px'
+            }}>
               {experiments.map((exp) => {
-                const langLabel = exp.language === 'hi' ? 'Hindi' : 'English';
-                const cleanTitle = exp.title.length > 38 ? `${exp.title.slice(0, 35)}...` : exp.title;
+                const isSelected = exp.id === activeExperiment?.id;
+                const isHindi = exp.language === 'hi';
+                const label = isHindi ? 'Hindi' : 'English';
+
                 return (
-                  <option key={exp.id} value={exp.id}>
-                    [{langLabel}] {cleanTitle}
-                  </option>
+                  <button
+                    key={exp.id}
+                    onClick={() => onSelectExperiment(exp)}
+                    className="btn btn-sm"
+                    style={{
+                      background: isSelected
+                        ? (isHindi ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'linear-gradient(135deg, #10b981, #059669)')
+                        : 'transparent',
+                      color: isSelected ? '#ffffff' : 'var(--text-secondary)',
+                      fontWeight: isSelected ? 700 : 500,
+                      fontSize: '0.82rem',
+                      padding: '5px 16px',
+                      borderRadius: 'calc(var(--radius-md) - 3px)',
+                      boxShadow: isSelected ? '0 2px 8px rgba(0,0,0,0.18)' : 'none',
+                      transition: 'all 0.18s ease',
+                      border: 'none',
+                      cursor: 'pointer'
+                    }}
+                    title={exp.title}
+                  >
+                    {label}
+                  </button>
                 );
               })}
-            </select>
+            </div>
           </div>
         )}
 
