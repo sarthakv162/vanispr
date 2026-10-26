@@ -9,13 +9,110 @@ import json
 from contextlib import contextmanager
 
 DB_PATH = os.getenv("SQLITE_DB_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "aadyalang_spr.db"))
+TURSO_DATABASE_URL = os.getenv("TURSO_DATABASE_URL")
+TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN")
+
+class LibsqlRow:
+    """Row wrapper mimicking sqlite3.Row for dict conversion, key lookups, and index access."""
+    def __init__(self, description, values):
+        self._keys = [col[0] for col in description] if description else []
+        self._dict = dict(zip(self._keys, values)) if description else {}
+        self._values = list(values) if values else []
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self._values[key]
+        return self._dict[key]
+
+    def get(self, key, default=None):
+        return self._dict.get(key, default)
+
+    def keys(self):
+        return self._dict.keys()
+
+    def values(self):
+        return self._dict.values()
+
+    def items(self):
+        return self._dict.items()
+
+    def __iter__(self):
+        return iter(self._dict)
+
+    def __len__(self):
+        return len(self._dict)
+
+    def __repr__(self):
+        return repr(self._dict)
+
+class LibsqlCursorWrapper:
+    """Cursor wrapper that yields LibsqlRow for fetchone/fetchall/iteration."""
+    def __init__(self, raw_cursor):
+        self._raw = raw_cursor
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+    def fetchone(self):
+        row = self._raw.fetchone()
+        if row is None:
+            return None
+        return LibsqlRow(self._raw.description, row)
+
+    def fetchall(self):
+        desc = self._raw.description
+        if not desc:
+            return []
+        rows = self._raw.fetchall()
+        return [LibsqlRow(desc, r) for r in rows]
+
+    def __iter__(self):
+        desc = self._raw.description
+        while True:
+            row = self._raw.fetchone()
+            if row is None:
+                break
+            yield LibsqlRow(desc, row)
+
+class LibsqlConnWrapper:
+    """Connection wrapper ensuring full sqlite3 compatibility with commit, rollback, and cursor."""
+    def __init__(self, raw_conn):
+        self._raw = raw_conn
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+    def cursor(self):
+        return LibsqlCursorWrapper(self._raw.cursor())
+
+    def execute(self, *args, **kwargs):
+        cur = self._raw.execute(*args, **kwargs)
+        return LibsqlCursorWrapper(cur)
+
+    def executemany(self, *args, **kwargs):
+        cur = self._raw.executemany(*args, **kwargs)
+        return LibsqlCursorWrapper(cur)
+
+    def commit(self):
+        self._raw.commit()
+
+    def rollback(self):
+        self._raw.rollback()
+
+    def close(self):
+        self._raw.close()
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA foreign_keys=ON;")
-    conn.row_factory = sqlite3.Row
-    return conn
+    if TURSO_DATABASE_URL and TURSO_AUTH_TOKEN:
+        import libsql
+        raw_conn = libsql.connect(TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN)
+        return LibsqlConnWrapper(raw_conn)
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA foreign_keys=ON;")
+        conn.row_factory = sqlite3.Row
+        return conn
 
 @contextmanager
 def get_db():
