@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   User, Activity, Brain, CheckCircle2, XCircle,
   Search, Sliders, ArrowLeft, RefreshCw,
@@ -10,6 +10,7 @@ import { api } from '../../api/client';
 interface ParticipantDeepDrilldownProps {
   experimentId: string;
   initialParticipantId?: string;
+  onSelectParticipant?: (participantId: string) => void;
   onBackToGroup?: () => void;
   participantsList?: Array<{
     participant_id: string;
@@ -23,6 +24,7 @@ interface ParticipantDeepDrilldownProps {
 export const ParticipantDeepDrilldown: React.FC<ParticipantDeepDrilldownProps> = ({
   experimentId,
   initialParticipantId,
+  onSelectParticipant,
   onBackToGroup,
   participantsList = []
 }) => {
@@ -33,6 +35,25 @@ export const ParticipantDeepDrilldown: React.FC<ParticipantDeepDrilldownProps> =
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Track initialParticipantId prop to prevent resetting local selection when user changes dropdown
+  const prevInitialPropRef = useRef(initialParticipantId);
+
+  useEffect(() => {
+    if (initialParticipantId && initialParticipantId !== prevInitialPropRef.current) {
+      prevInitialPropRef.current = initialParticipantId;
+      setSelectedId(initialParticipantId);
+    }
+  }, [initialParticipantId]);
+
+  // If initial load had no selectedId and participantsList arrives later
+  useEffect(() => {
+    if (!selectedId && participantsList && participantsList.length > 0) {
+      const defaultId = initialParticipantId || participantsList[0].participant_id;
+      setSelectedId(defaultId);
+      prevInitialPropRef.current = defaultId;
+    }
+  }, [participantsList, selectedId, initialParticipantId]);
+
   // Filters
   const [filterType, setFilterType] = useState<'all' | 'target' | 'filler' | 'hard' | 'incorrect'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -41,7 +62,7 @@ export const ParticipantDeepDrilldown: React.FC<ParticipantDeepDrilldownProps> =
     trialId: string;
   } | null>(null);
 
-  // Fetch participant analysis
+  // Fetch participant analysis with race condition avoidance
   const loadParticipantData = async (participantId: string) => {
     if (!participantId) {
       setLoading(false);
@@ -74,7 +95,10 @@ export const ParticipantDeepDrilldown: React.FC<ParticipantDeepDrilldownProps> =
       } else {
         const remaining = (participantsList || []).filter(p => p.participant_id !== analysis.participant.participant_id);
         if (remaining.length > 0) {
-          setSelectedId(remaining[0].participant_id);
+          const nextId = remaining[0].participant_id;
+          prevInitialPropRef.current = nextId;
+          setSelectedId(nextId);
+          onSelectParticipant?.(nextId);
         } else {
           setSelectedId('');
           setAnalysis(null);
@@ -86,45 +110,55 @@ export const ParticipantDeepDrilldown: React.FC<ParticipantDeepDrilldownProps> =
   };
 
   useEffect(() => {
+    let isCurrent = true;
     if (selectedId) {
-      loadParticipantData(selectedId);
+      setLoading(true);
+      setError(null);
+      api.getParticipantAnalysis(experimentId, selectedId)
+        .then((data) => {
+          if (isCurrent) {
+            setAnalysis(data);
+            setLoading(false);
+          }
+        })
+        .catch((err: any) => {
+          if (isCurrent) {
+            console.error('Failed to load participant deep analysis:', err);
+            setError(err?.message || 'Failed to fetch participant analysis');
+            setLoading(false);
+          }
+        });
     } else {
       setLoading(false);
       setAnalysis(null);
     }
+    return () => {
+      isCurrent = false;
+    };
   }, [selectedId, experimentId]);
-
-  // If initialParticipantId changes from props or participantsList populates
-  useEffect(() => {
-    if (initialParticipantId && initialParticipantId !== selectedId) {
-      setSelectedId(initialParticipantId);
-    } else if (!selectedId && participantsList && participantsList.length > 0) {
-      setSelectedId(participantsList[0].participant_id);
-    }
-  }, [initialParticipantId, participantsList?.length, selectedId]);
 
   // Difficulty badge styling
   const getDifficultyColor = (level: WordDetail['difficulty_level']) => {
     switch (level) {
       case 'hard':
         return {
-          bg: 'rgba(244, 63, 94, 0.15)',
-          border: 'rgba(244, 63, 94, 0.45)',
-          text: '#fda4af',
+          bg: 'rgba(244, 63, 94, 0.16)',
+          border: 'rgba(244, 63, 94, 0.5)',
+          text: 'var(--accent-rose)',
           label: 'Hard (Peak Slowdown)'
         };
       case 'elevated':
         return {
-          bg: 'rgba(245, 158, 11, 0.15)',
-          border: 'rgba(245, 158, 11, 0.45)',
-          text: '#fcd34d',
+          bg: 'rgba(245, 158, 11, 0.16)',
+          border: 'rgba(245, 158, 11, 0.5)',
+          text: 'var(--accent-amber)',
           label: 'Elevated Load'
         };
       case 'fast':
         return {
-          bg: 'rgba(16, 185, 129, 0.12)',
-          border: 'rgba(16, 185, 129, 0.35)',
-          text: '#6ee7b7',
+          bg: 'rgba(16, 185, 129, 0.14)',
+          border: 'rgba(16, 185, 129, 0.45)',
+          text: 'var(--accent-emerald)',
           label: 'Fast / Fluent'
         };
       default:
@@ -204,7 +238,12 @@ export const ParticipantDeepDrilldown: React.FC<ParticipantDeepDrilldownProps> =
               className="select"
               style={{ minWidth: 220, padding: '6px 12px', fontSize: '0.85rem' }}
               value={selectedId}
-              onChange={(e) => setSelectedId(e.target.value)}
+              onChange={(e) => {
+                const newId = e.target.value;
+                prevInitialPropRef.current = newId;
+                setSelectedId(newId);
+                onSelectParticipant?.(newId);
+              }}
             >
               {participantsList.length > 0 ? (
                 participantsList.map((p) => (
@@ -826,7 +865,7 @@ export const ParticipantDeepDrilldown: React.FC<ParticipantDeepDrilldownProps> =
                       flexWrap: 'wrap',
                       gap: 8,
                       alignItems: 'flex-start',
-                      background: 'rgba(0, 0, 0, 0.15)',
+                      background: 'var(--spr-heatmap-tray-bg)',
                       padding: '14px 16px',
                       borderRadius: 'var(--radius-md)',
                       border: '1px solid var(--border-subtle)'
@@ -848,7 +887,7 @@ export const ParticipantDeepDrilldown: React.FC<ParticipantDeepDrilldownProps> =
                               borderRadius: 'var(--radius-sm)',
                               background: styleConfig.bg,
                               border: isSelected
-                                ? '2px solid #fff'
+                                ? '2px solid var(--accent-indigo)'
                                 : isCritical
                                 ? '2px solid var(--accent-indigo)'
                                 : `1px solid ${styleConfig.border}`,
@@ -876,12 +915,14 @@ export const ParticipantDeepDrilldown: React.FC<ParticipantDeepDrilldownProps> =
                             )}
 
                             {/* Word Text */}
-                            <span style={{
-                              fontSize: '1.05rem',
-                              fontWeight: isCritical ? 700 : 500,
-                              color: styleConfig.text,
-                              fontFamily: 'inherit'
-                            }}>
+                            <span
+                              className="spr-heatmap-word-title devanagari"
+                              style={{
+                                fontSize: '1.1rem',
+                                fontWeight: 800,
+                                color: 'var(--spr-word-chip-text, #000000)'
+                              }}
+                            >
                               {word.word_text}
                             </span>
 
@@ -893,13 +934,13 @@ export const ParticipantDeepDrilldown: React.FC<ParticipantDeepDrilldownProps> =
                               fontSize: '0.68rem',
                               marginTop: 3
                             }}>
-                              <span className="mono" style={{ color: 'var(--text-muted)' }}>
+                              <span className="mono" style={{ color: 'var(--spr-chip-rt-text, var(--text-muted))', fontWeight: 600 }}>
                                 {word.rt_ms}ms
                               </span>
                               <span
                                 className="mono"
                                 style={{
-                                  fontWeight: 600,
+                                  fontWeight: 700,
                                   color: word.residual_rt > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)'
                                 }}
                               >

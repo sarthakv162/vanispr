@@ -159,6 +159,7 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
         <ParticipantDeepDrilldown
           experimentId={experiment.id}
           initialParticipantId={selectedParticipantId || undefined}
+          onSelectParticipant={(id) => setSelectedParticipantId(id)}
           onBackToGroup={() => setAnalysisView('group')}
           participantsList={data?.participants_summary}
         />
