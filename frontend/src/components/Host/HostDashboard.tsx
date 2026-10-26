@@ -263,6 +263,95 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({ experiment, onOpen
         </div>
       </div>
 
+      {/* Enrolled Participants Roster */}
+      <div className="glass-panel" style={{ padding: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Users size={18} color="var(--accent-indigo)" />
+            <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>
+              Enrolled Participants Roster ({data?.participants?.length || 0})
+            </h3>
+          </div>
+          <span className="badge badge-indigo">Real-time DB Records</span>
+        </div>
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 16 }}>
+          All recorded participant sessions, counterbalanced lists, and comprehension accuracies.
+        </p>
+
+        {(!data?.participants || data.participants.length === 0) ? (
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+            No participant sessions recorded for this experiment yet.
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)', textAlign: 'left', color: 'var(--text-secondary)' }}>
+                  <th style={{ padding: '10px 12px', fontWeight: 600 }}>Participant / Name</th>
+                  <th style={{ padding: '10px 12px', fontWeight: 600 }}>Assigned List</th>
+                  <th style={{ padding: '10px 12px', fontWeight: 600 }}>Status</th>
+                  <th style={{ padding: '10px 12px', fontWeight: 600 }}>Accuracy</th>
+                  <th style={{ padding: '10px 12px', fontWeight: 600 }}>Trials Recorded</th>
+                  <th style={{ padding: '10px 12px', fontWeight: 600 }}>Timestamp</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.participants.map((p) => (
+                  <tr
+                    key={p.id}
+                    style={{
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
+                      transition: 'background 0.15s ease'
+                    }}
+                  >
+                    <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        background: 'rgba(99, 102, 241, 0.12)',
+                        color: 'var(--accent-indigo)',
+                        padding: '3px 8px',
+                        borderRadius: 4,
+                        fontSize: '0.82rem'
+                      }}>
+                        {p.external_id || p.id.slice(0, 8)}
+                      </span>
+                    </td>
+                    <td style={{ padding: '10px 12px' }}>
+                      <span className="mono">List {p.list_number}</span>
+                    </td>
+                    <td style={{ padding: '10px 12px' }}>
+                      <span className={`badge ${p.status === 'completed' ? 'badge-emerald' : 'badge-amber'}`}>
+                        {p.status}
+                      </span>
+                    </td>
+                    <td style={{ padding: '10px 12px' }} className="mono">
+                      {p.accuracy !== null && p.accuracy !== undefined ? (
+                        <span style={{
+                          color: p.accuracy >= 75 ? 'var(--accent-emerald)' : 'var(--accent-rose)',
+                          fontWeight: 600
+                        }}>
+                          {Math.round(p.accuracy)}%
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)' }}>—</span>
+                      )}
+                    </td>
+                    <td className="mono" style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
+                      {p.trials_count} trials
+                    </td>
+                    <td style={{ padding: '10px 12px', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+                      {p.created_at ? new Date(p.created_at).toLocaleString() : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* Quality Flags & Tab Switch Telemetry */}
       <div className="glass-panel" style={{ padding: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>

@@ -850,11 +850,24 @@ def get_live_dashboard(experiment_id: str):
         """, (experiment_id,))
         quality_flags = [dict(r) for r in cursor.fetchall()]
 
+        # Participants Roster
+        cursor.execute("""
+        SELECT p.id, p.external_id, p.status, p.created_at, p.completed_at, l.list_number,
+               (SELECT COUNT(*) FROM trials t WHERE t.participant_id = p.id) as trials_count,
+               (SELECT ROUND(AVG(t.correct) * 100, 1) FROM trials t WHERE t.participant_id = p.id AND t.correct IS NOT NULL) as accuracy
+        FROM participants p
+        LEFT JOIN lists l ON p.list_id = l.id
+        WHERE p.experiment_id = ?
+        ORDER BY p.created_at DESC
+        """, (experiment_id,))
+        participants_roster = [dict(r) for r in cursor.fetchall()]
+
         return {
             "participant_stats": p_stats,
             "list_balance": list_balance,
             "accuracy_by_type": accuracy_by_type,
-            "recent_quality_flags": quality_flags
+            "recent_quality_flags": quality_flags,
+            "participants": participants_roster
         }
 
 # ==============================================================================

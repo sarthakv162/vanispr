@@ -276,6 +276,16 @@ export interface DashboardData {
     external_id: string;
     participant_id: string;
   }>;
+  participants?: Array<{
+    id: string;
+    external_id: string;
+    status: string;
+    list_number: number;
+    created_at: string;
+    completed_at?: string;
+    trials_count: number;
+    accuracy?: number;
+  }>;
 }
 
 export interface NormingItem {
