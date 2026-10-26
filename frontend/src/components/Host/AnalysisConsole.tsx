@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   TrendingUp, Download, Code, FileText, CheckCircle,
   AlertCircle, Sliders, RefreshCw, BarChart2, User, Search,
-  ListOrdered, Clock, Flame, Trash2, Database
+  ListOrdered, Clock, Flame, Trash2, Database, Upload
 } from 'lucide-react';
 import { Experiment, AnalysisResponse } from '../../types';
 import { api } from '../../api/client';
@@ -18,6 +18,26 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
   const [metricMode, setMetricMode] = useState<'residual' | 'raw'>('residual');
   const [analysisView, setAnalysisView] = useState<'group' | 'participant'>('group');
   const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(null);
+
+  const handleRestoreDb = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!window.confirm(`Are you sure you want to restore "${file.name}"?\n\nThis will replace the active SQLite database on the server with this backup file.`)) {
+      e.target.value = '';
+      return;
+    }
+    try {
+      setLoading(true);
+      await api.restoreDatabase(file);
+      alert('Database restored successfully! Recomputing analysis...');
+      await fetchAnalysis();
+    } catch (err: any) {
+      alert('Failed to restore database: ' + (err.message || err));
+    } finally {
+      setLoading(false);
+      e.target.value = '';
+    }
+  };
 
   const handleDeleteParticipant = async (participantId: string, externalId: string) => {
     if (!window.confirm(`Are you sure you want to remove participant "${externalId || participantId}"?\n\nThis will delete their trial entries and reading times from the database. All experiment stimulus items remain intact.`)) {
@@ -223,6 +243,20 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
             >
               <Database size={14} /> Full SQLite DB (.db)
             </a>
+
+            <label
+              className="btn btn-secondary btn-sm"
+              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              title="Restore / Upload a downloaded SQLite database backup file"
+            >
+              <Upload size={14} /> Restore DB (.db)
+              <input
+                type="file"
+                accept=".db,.sqlite,.sqlite3"
+                style={{ display: 'none' }}
+                onChange={handleRestoreDb}
+              />
+            </label>
           </div>
         </div>
 

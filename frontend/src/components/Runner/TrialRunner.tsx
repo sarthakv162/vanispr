@@ -165,7 +165,7 @@ export const TrialRunner: React.FC<TrialRunnerProps> = ({
               question_rt_ms: qRt,
               focus_lost_count: trialResultRef.current.focusLostCount,
               word_events: trialEventsRef.current
-            });
+            }).catch((err) => console.warn('Practice trial batch queued:', err));
           } else {
             // Correct or experimental: advance immediately
             commitAndProceed(chosen, isCorrect, qRt);

@@ -182,6 +182,20 @@ export const api = {
     return `${BASE_URL}/admin/backup-db`;
   },
 
+  async restoreDatabase(file: File): Promise<{ status: string; message: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${BASE_URL}/admin/restore-db`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Failed to restore database' }));
+      throw new Error(err.detail || 'Failed to restore database');
+    }
+    return res.json();
+  },
+
   // Norming Module
   async getNormingItems(experimentId: string): Promise<NormingItem[]> {
     const res = await fetch(`${BASE_URL}/norming/${experimentId}`);

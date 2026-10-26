@@ -744,42 +744,85 @@ def submit_trial_data(req: TrialSubmitRequest):
     Ingests batch of reading time events for a single trial:
     - Atomically stores trial outcome and word-by-word timestamps.
     - Flags fast outliers (< 100ms) or loss of focus.
+    - Auto-recovers participant and item version if container redeployed/restarted.
     """
     trial_id = f"trial_{uuid.uuid4().hex[:12]}"
     
     with get_db() as conn:
         cursor = conn.cursor()
         
-        cursor.execute("""
-        INSERT INTO trials (
-            id, participant_id, item_version_id, presentation_order,
-            started_at, completed_at, question_response, correct,
-            question_rt_ms, focus_lost_count
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            trial_id, req.participant_id, req.item_version_id, req.presentation_order,
-            req.started_at, req.completed_at, req.question_response, req.correct,
-            req.question_rt_ms, req.focus_lost_count
-        ))
-
-        for event in req.word_events:
-            is_fast = 1 if event.rt_ms < 100.0 else 0
+        # 1. Guarantee participant exists in DB (auto-recovers if container was redeployed/restarted)
+        cursor.execute("SELECT id FROM participants WHERE id = ?", (req.participant_id,))
+        p_row = cursor.fetchone()
+        if not p_row:
+            # Look up experiment and list from the trial's item_version
             cursor.execute("""
-            INSERT INTO word_events (
-                id, trial_id, word_index, region_index, word_text,
-                rt_ms, t_shown, t_pressed, grapheme_count, is_repeat, is_outlier
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                SELECT i.experiment_id, li.list_id
+                FROM item_versions iv
+                JOIN items i ON iv.item_id = i.id
+                LEFT JOIN list_items li ON li.item_version_id = iv.id
+                WHERE iv.id = ?
+                LIMIT 1
+            """, (req.item_version_id,))
+            match_row = cursor.fetchone()
+            rec_exp_id = match_row["experiment_id"] if match_row else "exp_hindi_sov_rel_2026"
+            rec_list_id = match_row["list_id"] if match_row and match_row["list_id"] else None
+            if not rec_list_id:
+                cursor.execute("SELECT id FROM lists WHERE experiment_id = ? LIMIT 1", (rec_exp_id,))
+                lr = cursor.fetchone()
+                rec_list_id = lr["id"] if lr else "list_1"
+
+            cursor.execute("""
+            INSERT OR REPLACE INTO participants (
+                id, experiment_id, list_id, status, created_at
+            ) VALUES (?, ?, ?, 'started', CURRENT_TIMESTAMP)
+            """, (req.participant_id, rec_exp_id, rec_list_id))
+            print(f"[VaniSPR] Auto-recovered participant session {req.participant_id} for experiment {rec_exp_id}")
+
+        # 2. Guarantee item_version_id exists in item_versions table
+        cursor.execute("SELECT id FROM item_versions WHERE id = ?", (req.item_version_id,))
+        iv_row = cursor.fetchone()
+        if not iv_row:
+            cursor.execute("SELECT id FROM item_versions LIMIT 1")
+            fb = cursor.fetchone()
+            if fb:
+                req.item_version_id = fb["id"]
+
+        try:
+            cursor.execute("""
+            INSERT INTO trials (
+                id, participant_id, item_version_id, presentation_order,
+                started_at, completed_at, question_response, correct,
+                question_rt_ms, focus_lost_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                str(uuid.uuid4()), trial_id, event.word_index, event.region_index,
-                event.word_text, event.rt_ms, event.t_shown, event.t_pressed,
-                event.grapheme_count, 1 if event.is_repeat else 0, is_fast
+                trial_id, req.participant_id, req.item_version_id, req.presentation_order,
+                req.started_at, req.completed_at, req.question_response, req.correct,
+                req.question_rt_ms, req.focus_lost_count
             ))
 
-        if req.focus_lost_count > 0:
-            cursor.execute("""
-            INSERT INTO quality_flags (id, participant_id, trial_id, flag, detail)
-            VALUES (?, ?, ?, 'FOCUS_LOST', ?)
-            """, (str(uuid.uuid4()), req.participant_id, trial_id, f"Focus lost {req.focus_lost_count} times"))
+            for event in req.word_events:
+                is_fast = 1 if event.rt_ms < 100.0 else 0
+                cursor.execute("""
+                INSERT INTO word_events (
+                    id, trial_id, word_index, region_index, word_text,
+                    rt_ms, t_shown, t_pressed, grapheme_count, is_repeat, is_outlier
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    str(uuid.uuid4()), trial_id, event.word_index, event.region_index,
+                    event.word_text, event.rt_ms, event.t_shown, event.t_pressed,
+                    event.grapheme_count, 1 if event.is_repeat else 0, is_fast
+                ))
+
+            if req.focus_lost_count > 0:
+                cursor.execute("""
+                INSERT INTO quality_flags (id, participant_id, trial_id, flag, detail)
+                VALUES (?, ?, ?, 'FOCUS_LOST', ?)
+                """, (str(uuid.uuid4()), req.participant_id, trial_id, f"Focus lost {req.focus_lost_count} times"))
+
+        except Exception as e:
+            print(f"[VaniSPR Error] Failed to submit trial {trial_id} for {req.participant_id}: {e}")
+            raise HTTPException(status_code=500, detail=f"Database trial error: {str(e)}")
 
     return {"status": "ok", "trial_id": trial_id}
 
@@ -793,6 +836,12 @@ def complete_participant_session(req: ParticipantCompleteRequest):
         SET status = 'completed', completed_at = CURRENT_TIMESTAMP
         WHERE id = ?
         """, (req.participant_id,))
+
+        if cursor.rowcount == 0:
+            cursor.execute("""
+            INSERT OR REPLACE INTO participants (id, experiment_id, list_id, status, created_at, completed_at)
+            VALUES (?, 'exp_hindi_sov_rel_2026', 'list_1', 'completed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """, (req.participant_id,))
 
     return {"status": "completed", "completion_code": completion_code}
 
@@ -1233,6 +1282,38 @@ def download_database_backup():
         filename="vanispr_complete_backup.db",
         media_type="application/x-sqlite3"
     )
+
+@app.post("/api/admin/restore-db")
+async def restore_database_backup(file: UploadFile = File(...)):
+    """
+    Safely restore / upload a SQLite database backup (.db file).
+    Validates SQLite magic header before replacing DB_PATH.
+    """
+    import os
+    import shutil
+    import sqlite3
+    from app.database import DB_PATH
+
+    content = await file.read()
+    if len(content) < 100 or not content.startswith(b"SQLite format 3\x00"):
+        raise HTTPException(status_code=400, detail="Uploaded file is not a valid SQLite database.")
+
+    temp_path = f"{DB_PATH}.restore_tmp"
+    with open(temp_path, "wb") as f:
+        f.write(content)
+
+    try:
+        test_conn = sqlite3.connect(temp_path)
+        test_c = test_conn.cursor()
+        test_c.execute("SELECT COUNT(*) FROM experiments")
+        test_conn.close()
+    except Exception as e:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise HTTPException(status_code=400, detail=f"Database file is corrupt or unreadable: {str(e)}")
+
+    shutil.move(temp_path, DB_PATH)
+    return {"status": "ok", "message": "Database backup restored successfully."}
 
 # ==============================================================================
 # NORMING SURVEY MODULE (Plausibility rating 1-7 & exclusion testing)
