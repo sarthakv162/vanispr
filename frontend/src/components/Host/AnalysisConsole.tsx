@@ -89,6 +89,14 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
       setLoading(true);
       const res = await api.getAnalysis(experiment.id, fillerCutoff, rtMin, rtMax);
       setData(res);
+      if (res?.participants_summary?.length) {
+        setSelectedParticipantId((prev) => {
+          const exists = res.participants_summary.some((p) => p.participant_id === prev);
+          return exists ? prev : res.participants_summary[0].participant_id;
+        });
+      } else {
+        setSelectedParticipantId('');
+      }
     } catch (err) {
       console.error('Failed to load analysis:', err);
     } finally {

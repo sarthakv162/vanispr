@@ -45,12 +45,20 @@ export const ParticipantDeepDrilldown: React.FC<ParticipantDeepDrilldownProps> =
     }
   }, [initialParticipantId]);
 
-  // If initial load had no selectedId and participantsList arrives later
+  // If initial load had no selectedId or points to a non-existent participant, select first valid participant
   useEffect(() => {
-    if (!selectedId && participantsList && participantsList.length > 0) {
-      const defaultId = initialParticipantId || participantsList[0].participant_id;
-      setSelectedId(defaultId);
-      prevInitialPropRef.current = defaultId;
+    if (participantsList && participantsList.length > 0) {
+      const exists = participantsList.some((p) => p.participant_id === selectedId);
+      if (!selectedId || !exists) {
+        const defaultId = (initialParticipantId && participantsList.some((p) => p.participant_id === initialParticipantId))
+          ? initialParticipantId
+          : participantsList[0].participant_id;
+        setSelectedId(defaultId);
+        prevInitialPropRef.current = defaultId;
+      }
+    } else {
+      setSelectedId('');
+      setAnalysis(null);
     }
   }, [participantsList, selectedId, initialParticipantId]);
 
