@@ -38,11 +38,11 @@ git push origin main
    - **Runtime:** `Python 3`
    - **Build Command:**
      ```bash
-     pip install -r backend/requirements.txt
+     pip install -r requirements.txt
      ```
    - **Start Command:**
      ```bash
-     uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port $PORT
+     uvicorn main:app --host 0.0.0.0 --port $PORT
      ```
    - **Instance Type:** Select **Free** ($0 / month).
 5. Click **"Create Web Service"**.
