@@ -139,12 +139,16 @@ function MainApp() {
         if (!expFromUrl && window.location.pathname.startsWith('/run/')) {
           expFromUrl = window.location.pathname.replace('/run/', '').split('/')[0].split('?')[0].trim();
         }
-        const targetId = selectId || expFromUrl;
-        const toSelect = targetId ? exps.find((e) => e.id === targetId) || exps[0] : exps[0];
+        const savedExpId = localStorage.getItem('vanispr_active_exp');
+        const targetId = selectId || expFromUrl || savedExpId;
+        // Default to Hindi study if no target is specified, so it never defaults to the 4-question English pilot
+        const defaultExp = exps.find((e) => e.language === 'hi') || exps[0];
+        const toSelect = targetId ? exps.find((e) => e.id === targetId) || defaultExp : defaultExp;
 
         if (toSelect) {
           const detail = await api.getExperiment(toSelect.id);
           setActiveExperiment(detail);
+          localStorage.setItem('vanispr_active_exp', detail.id);
         }
       }
     } catch (err) {
@@ -162,6 +166,7 @@ function MainApp() {
     try {
       const detail = await api.getExperiment(exp.id);
       setActiveExperiment(detail);
+      localStorage.setItem('vanispr_active_exp', detail.id);
     } catch (err) {
       console.error(err);
     }

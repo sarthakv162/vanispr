@@ -91,36 +91,51 @@ export const Navbar: React.FC<NavbarProps> = ({
               border: '1px solid var(--border-subtle)',
               gap: '3px'
             }}>
-              {experiments.map((exp) => {
-                const isSelected = exp.id === activeExperiment?.id;
-                const isHindi = exp.language === 'hi';
-                const label = isHindi ? 'Hindi' : 'English';
+              {[...experiments]
+                .sort((a, b) => (a.language === 'en' ? -1 : 1))
+                .map((exp) => {
+                  const isSelected = exp.id === activeExperiment?.id;
+                  const isHindi = exp.language === 'hi';
+                  const label = isHindi ? 'Hindi' : 'English';
+                  const trialCountHint = isHindi ? '8 Trials' : '4 Trials';
 
-                return (
-                  <button
-                    key={exp.id}
-                    onClick={() => onSelectExperiment(exp)}
-                    className="btn btn-sm"
-                    style={{
-                      background: isSelected
-                        ? (isHindi ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'linear-gradient(135deg, #10b981, #059669)')
-                        : 'transparent',
-                      color: isSelected ? '#ffffff' : 'var(--text-secondary)',
-                      fontWeight: isSelected ? 700 : 500,
-                      fontSize: '0.78rem',
-                      padding: '4px 12px',
-                      borderRadius: 'calc(var(--radius-md) - 3px)',
-                      boxShadow: isSelected ? '0 2px 8px rgba(0,0,0,0.18)' : 'none',
-                      transition: 'all 0.18s ease',
-                      border: 'none',
-                      cursor: 'pointer'
-                    }}
-                    title={exp.title}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
+                  return (
+                    <button
+                      key={exp.id}
+                      onClick={() => onSelectExperiment(exp)}
+                      className="btn btn-sm"
+                      style={{
+                        background: isSelected
+                          ? (isHindi ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'linear-gradient(135deg, #10b981, #059669)')
+                          : 'transparent',
+                        color: isSelected ? '#ffffff' : 'var(--text-secondary)',
+                        fontWeight: isSelected ? 700 : 500,
+                        fontSize: '0.78rem',
+                        padding: '4px 12px',
+                        borderRadius: 'calc(var(--radius-md) - 3px)',
+                        boxShadow: isSelected ? '0 2px 8px rgba(0,0,0,0.18)' : 'none',
+                        transition: 'all 0.18s ease',
+                        border: 'none',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5
+                      }}
+                      title={`${exp.title} (${trialCountHint})`}
+                    >
+                      <span>{label}</span>
+                      <span style={{
+                        fontSize: '0.68rem',
+                        opacity: isSelected ? 0.9 : 0.6,
+                        background: isSelected ? 'rgba(255,255,255,0.2)' : 'var(--bg-surface)',
+                        padding: '1px 5px',
+                        borderRadius: 4
+                      }}>
+                        {isHindi ? '8' : '4'}
+                      </span>
+                    </button>
+                  );
+                })}
             </div>
           </div>
         )}

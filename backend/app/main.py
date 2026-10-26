@@ -96,7 +96,7 @@ def list_experiments():
                (SELECT COUNT(*) FROM participants p WHERE p.experiment_id = e.id) as total_participants,
                (SELECT COUNT(*) FROM participants p WHERE p.experiment_id = e.id AND p.status = 'completed') as completed_participants
         FROM experiments e
-        ORDER BY e.created_at DESC
+        ORDER BY CASE WHEN e.language = 'en' THEN 1 ELSE 2 END, e.id ASC
         """)
         rows = cursor.fetchall()
         result = []
