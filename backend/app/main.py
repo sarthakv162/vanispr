@@ -251,15 +251,31 @@ async def bulk_import_csv(experiment_id: str, file: UploadFile = File(...)):
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (item_id, experiment_id, item_num, item_type, question, correct_ans, explanation))
 
-            # Auto-split words into regions
-            words = sentence.split()
-            regions = [{"index": idx + 1, "text": w, "words": [w]} for idx, w in enumerate(words)]
+            # Support explicit pipe-delimited regions (e.g. "Region 1 | Region 2 | Region 3") or fallback to word-by-word
+            if "|" in sentence:
+                raw_chunks = [c.strip() for c in sentence.split("|") if c.strip()]
+                regions = []
+                clean_words = []
+                for idx, chunk in enumerate(raw_chunks):
+                    c_words = chunk.split()
+                    clean_words.extend(c_words)
+                    regions.append({
+                        "index": idx + 1,
+                        "text": chunk,
+                        "words": c_words
+                    })
+                clean_sentence = " ".join(clean_words)
+            else:
+                clean_words = sentence.split()
+                regions = [{"index": idx + 1, "text": w, "words": [w]} for idx, w in enumerate(clean_words)]
+                clean_sentence = sentence
             
             v_id = f"ver_{uuid.uuid4().hex[:10]}"
+            grapheme_count = len(clean_sentence.replace(" ", ""))
             cursor.execute("""
             INSERT INTO item_versions (id, item_id, condition_label, sentence_text, regions_json, word_count, grapheme_count)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (v_id, item_id, cond_label, sentence, json.dumps(regions), len(words), len(sentence.replace(" ", ""))))
+            """, (v_id, item_id, cond_label, clean_sentence, json.dumps(regions), len(clean_words), grapheme_count))
             
             imported_count += 1
 
