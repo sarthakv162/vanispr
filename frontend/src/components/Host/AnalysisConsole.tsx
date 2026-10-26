@@ -70,8 +70,10 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
   const handleSeedPilot = async () => {
     try {
       setLoading(true);
-      await api.seedPilotData(experiment.id);
-      await fetchAnalysis();
+      const res = await api.seedPilotData(experiment.id);
+      alert(res.message || 'Successfully seeded 12 benchmark participants!');
+      setFillerCutoff(0.75);
+      await fetchAnalysis(0.75);
     } catch (err: any) {
       alert(`Failed to seed benchmark pilot dataset: ${err?.message || err}`);
     } finally {
@@ -296,26 +298,45 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
             <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Pre-Set Exclusions:</span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-              Filler Accuracy Cutoff:
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+              Comprehension Filter:
             </label>
-            <select
-              className="select"
-              style={{ width: 145, padding: '4px 8px', fontSize: '0.8rem' }}
-              value={fillerCutoff}
-              onChange={(e) => {
-                const val = parseFloat(e.target.value);
-                setFillerCutoff(val);
-                fetchAnalysis(val);
-              }}
-            >
-              <option value="0.75">≥ 75% (Paper standard)</option>
-              <option value="0.70">≥ 70%</option>
-              <option value="0.50">≥ 50%</option>
-              <option value="0.25">≥ 25%</option>
-              <option value="0.0">No filter (Show All)</option>
-            </select>
+            <div style={{ display: 'inline-flex', background: 'var(--bg-surface-elevated)', padding: 3, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', gap: 4 }}>
+              {[
+                { label: 'No Filter (Show All)', val: 0.0, desc: 'Shows all data including test runs' },
+                { label: '≥ 50% Accuracy', val: 0.50, desc: 'Includes participants with at least 50% comprehension' },
+                { label: '≥ 75% Paper Standard', val: 0.75, desc: 'Gibson & Warren (2004) strict attention filter' }
+              ].map((opt) => {
+                const isActive = Math.abs(fillerCutoff - opt.val) < 0.01;
+                return (
+                  <button
+                    key={opt.val}
+                    type="button"
+                    onClick={() => {
+                      setFillerCutoff(opt.val);
+                      fetchAnalysis(opt.val);
+                    }}
+                    className="btn btn-sm"
+                    title={opt.desc}
+                    style={{
+                      background: isActive ? 'var(--accent-indigo)' : 'transparent',
+                      color: isActive ? '#ffffff' : 'var(--text-secondary)',
+                      fontWeight: isActive ? 700 : 500,
+                      fontSize: '0.78rem',
+                      padding: '5px 12px',
+                      borderRadius: 'calc(var(--radius-md) - 3px)',
+                      boxShadow: isActive ? '0 2px 8px var(--accent-indigo-glow)' : 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

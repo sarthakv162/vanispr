@@ -11,13 +11,6 @@ def seed_pilot_participants_for_exp(exp_id: str, count: int = 12):
     with get_db() as conn:
         cursor = conn.cursor()
 
-        # Check existing participants
-        cursor.execute("SELECT id FROM participants WHERE experiment_id = ?", (exp_id,))
-        existing = cursor.fetchall()
-        if len(existing) >= count:
-            print(f"Experiment {exp_id} already has {len(existing)} participants. Skipping.")
-            return len(existing)
-
         # Get experiment lists
         cursor.execute("SELECT id, list_number FROM lists WHERE experiment_id = ? ORDER BY list_number", (exp_id,))
         lists = cursor.fetchall()
@@ -28,10 +21,18 @@ def seed_pilot_participants_for_exp(exp_id: str, count: int = 12):
         list_map = {row["list_number"]: row["id"] for row in lists}
         list_nums = sorted(list(list_map.keys()))
 
-        print(f"Seeding {count} benchmark pilot participants for {exp_id}...")
-
         prefix = "hindi_pilot" if "hindi" in exp_id else "eng_pilot"
         code_prefix = "HIN_P" if "hindi" in exp_id else "ENG_P"
+
+        # Clean previous pilot participants for a fresh, clean re-seed
+        cursor.execute("SELECT id FROM participants WHERE experiment_id = ? AND (id LIKE ? OR external_id LIKE ?)", (exp_id, f"part_{prefix}_%", f"{code_prefix}%"))
+        prev_pids = [row["id"] for row in cursor.fetchall()]
+        if prev_pids:
+            cursor.execute(f"DELETE FROM word_events WHERE trial_id IN (SELECT id FROM trials WHERE participant_id IN ({','.join(['?']*len(prev_pids))}))", prev_pids)
+            cursor.execute(f"DELETE FROM trials WHERE participant_id IN ({','.join(['?']*len(prev_pids))})", prev_pids)
+            cursor.execute(f"DELETE FROM participants WHERE id IN ({','.join(['?']*len(prev_pids))})", prev_pids)
+
+        print(f"Seeding {count} benchmark pilot participants for {exp_id}...")
 
         for p_idx in range(count):
             pid = f"part_{prefix}_{p_idx + 1:03d}"
