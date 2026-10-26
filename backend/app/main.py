@@ -400,11 +400,11 @@ def on_startup():
     with get_db() as conn:
         cleanup_duplicate_trials(conn)
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def root():
     return {"status": "ok", "platform": "VaniSPR", "version": "1.0.0", "docs": "/docs", "health": "/api/health"}
 
-@app.get("/api/health")
+@app.api_route("/api/health", methods=["GET", "HEAD"])
 def health_check():
     return {"status": "ok", "platform": "VaniSPR", "version": "1.0.0"}
 

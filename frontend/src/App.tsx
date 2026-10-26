@@ -90,6 +90,8 @@ function MainApp() {
   });
   const [activeTab, setActiveTab] = useState<'dashboard' | 'items' | 'latinsquare' | 'analysis' | 'norming' | 'csv'>('dashboard');
   const [loading, setLoading] = useState(true);
+  const [loadingError, setLoadingError] = useState<string | null>(null);
+  const [wakeUpNotice, setWakeUpNotice] = useState(false);
 
   // Authentication State: Aadya Gupta researcher credentials
   const [user, setUser] = useState<{ email: string; name: string } | null>(() => {
@@ -128,9 +130,18 @@ function MainApp() {
   const [newLang, setNewLang] = useState<'hi' | 'en'>('hi');
 
   const loadExperiments = async (selectId?: string) => {
+    setLoading(true);
+    setLoadingError(null);
+    setWakeUpNotice(false);
+
+    const wakeTimer = setTimeout(() => {
+      setWakeUpNotice(true);
+    }, 3500);
+
     try {
-      setLoading(true);
       const exps = await api.getExperiments();
+      clearTimeout(wakeTimer);
+      setWakeUpNotice(false);
       setExperiments(exps);
 
       if (exps.length > 0) {
@@ -151,8 +162,12 @@ function MainApp() {
           localStorage.setItem('vanispr_active_exp', detail.id);
         }
       }
-    } catch (err) {
+    } catch (err: any) {
+      clearTimeout(wakeTimer);
       console.error('Failed to load experiments:', err);
+      setLoadingError(
+        'Connecting to the research server is taking longer than usual. The backend may still be waking up from free-tier sleep (30–45s).'
+      );
     } finally {
       setLoading(false);
     }
@@ -196,7 +211,7 @@ function MainApp() {
     }
   };
 
-  if (loading && experiments.length === 0) {
+  if ((loading || loadingError) && experiments.length === 0) {
     return (
       <div style={{
         minHeight: '100vh',
@@ -204,12 +219,57 @@ function MainApp() {
         alignItems: 'center',
         justifyContent: 'center',
         background: 'var(--bg-main)',
-        color: 'var(--text-secondary)'
+        color: 'var(--text-secondary)',
+        padding: '24px'
       }}>
-        <div style={{ textAlign: 'center' }}>
-          <RefreshCw className="pulse" size={36} color="var(--accent-indigo)" style={{ margin: '0 auto 16px' }} />
-          <h2 style={{ fontSize: '1.25rem', color: 'var(--text-primary)', fontWeight: 600 }}>Initializing VaniSPR Research Suite</h2>
-          <p style={{ fontSize: '0.85rem', marginTop: 4 }}>Loading Hindi & English psycholinguistic environments...</p>
+        <div style={{
+          maxWidth: 480,
+          width: '100%',
+          textAlign: 'center',
+          padding: '36px 28px',
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 'var(--radius-lg)',
+          boxShadow: '0 12px 40px rgba(0,0,0,0.18)'
+        }}>
+          {loadingError ? (
+            <>
+              <div style={{ color: 'var(--accent-amber)', marginBottom: 16 }}>
+                <RefreshCw size={36} style={{ margin: '0 auto' }} />
+              </div>
+              <h2 style={{ fontSize: '1.25rem', color: 'var(--text-primary)', fontWeight: 700, marginBottom: 8 }}>
+                Server is Initializing
+              </h2>
+              <p style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 24 }}>
+                {loadingError}
+              </p>
+              <button
+                onClick={() => loadExperiments()}
+                className="btn btn-primary"
+                style={{ padding: '8px 24px', fontSize: '0.9rem', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+              >
+                <RefreshCw size={16} />
+                Connect to Server
+              </button>
+            </>
+          ) : (
+            <>
+              <RefreshCw className="pulse" size={36} color="var(--accent-indigo)" style={{ margin: '0 auto 16px' }} />
+              <h2 style={{ fontSize: '1.25rem', color: 'var(--text-primary)', fontWeight: 600 }}>
+                Initializing VaniSPR Research Suite
+              </h2>
+              <p style={{ fontSize: '0.85rem', marginTop: 6, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                {wakeUpNotice
+                  ? 'The backend server is waking up from sleep (Render cold-start). This typically takes ~30–45 seconds on first visit.'
+                  : 'Loading Hindi & English psycholinguistic environments...'}
+              </p>
+              {wakeUpNotice && (
+                <div style={{ marginTop: 16, fontSize: '0.8rem', color: 'var(--accent-indigo)', fontWeight: 500 }}>
+                  ⏳ Establishing secure connection, please hold on...
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     );

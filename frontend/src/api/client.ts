@@ -11,22 +11,33 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL
   ? `${import.meta.env.VITE_API_BASE_URL.replace(/\/$/, '')}/api` 
   : '/api';
 
+export async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 25000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export const api = {
   // Experiments
   async getExperiments(): Promise<Experiment[]> {
-    const res = await fetch(`${BASE_URL}/experiments`);
+    const res = await fetchWithTimeout(`${BASE_URL}/experiments`);
     if (!res.ok) throw new Error('Failed to fetch experiments');
     return res.json();
   },
 
   async getExperiment(id: string): Promise<Experiment> {
-    const res = await fetch(`${BASE_URL}/experiments/${id}`);
+    const res = await fetchWithTimeout(`${BASE_URL}/experiments/${id}`);
     if (!res.ok) throw new Error('Failed to fetch experiment details');
     return res.json();
   },
 
   async createExperiment(data: Partial<Experiment>): Promise<{ id: string }> {
-    const res = await fetch(`${BASE_URL}/experiments`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/experiments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -36,7 +47,7 @@ export const api = {
   },
 
   async updateExperiment(id: string, data: Partial<Experiment>): Promise<void> {
-    const res = await fetch(`${BASE_URL}/experiments/${id}`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/experiments/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -45,7 +56,7 @@ export const api = {
   },
 
   async addItem(experimentId: string, item: Partial<Item>): Promise<void> {
-    const res = await fetch(`${BASE_URL}/experiments/${experimentId}/items`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/experiments/${experimentId}/items`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(item)
@@ -54,14 +65,14 @@ export const api = {
   },
 
   async deleteItem(experimentId: string, itemId: string): Promise<void> {
-    const res = await fetch(`${BASE_URL}/experiments/${experimentId}/items/${itemId}`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/experiments/${experimentId}/items/${itemId}`, {
       method: 'DELETE'
     });
     if (!res.ok) throw new Error('Failed to delete item');
   },
 
   async generateLists(experimentId: string): Promise<{ message: string; conditions: string[] }> {
-    const res = await fetch(`${BASE_URL}/experiments/${experimentId}/generate-lists`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/experiments/${experimentId}/generate-lists`, {
       method: 'POST'
     });
     if (!res.ok) throw new Error('Failed to generate Latin Square lists');
@@ -71,7 +82,7 @@ export const api = {
   async uploadCsv(experimentId: string, file: File, clearExisting: boolean = false): Promise<{ message: string; imported_rows?: number; items_count?: number; lists_count?: number; conditions?: string[] }> {
     const formData = new FormData();
     formData.append('file', file);
-    const res = await fetch(`${BASE_URL}/experiments/${experimentId}/import-csv?clear_existing=${clearExisting}`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/experiments/${experimentId}/import-csv?clear_existing=${clearExisting}`, {
       method: 'POST',
       body: formData
     });
@@ -94,7 +105,7 @@ export const api = {
     background?: Record<string, any>;
     trial_mode?: string;
   }): Promise<RunnerSessionInit> {
-    const res = await fetch(`${BASE_URL}/runner/init`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/runner/init`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params)
@@ -104,7 +115,7 @@ export const api = {
   },
 
   async submitTrial(data: any): Promise<{ status: string; trial_id: string }> {
-    const res = await fetch(`${BASE_URL}/runner/trial`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/runner/trial`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -114,7 +125,7 @@ export const api = {
   },
 
   async completeRunnerSession(participant_id: string): Promise<{ status: string; completion_code: string }> {
-    const res = await fetch(`${BASE_URL}/runner/complete`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/runner/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ participant_id })
@@ -125,25 +136,25 @@ export const api = {
 
   // Dashboard & Analysis
   async getDashboard(experimentId: string): Promise<DashboardData> {
-    const res = await fetch(`${BASE_URL}/dashboard/${experimentId}`);
+    const res = await fetchWithTimeout(`${BASE_URL}/dashboard/${experimentId}`);
     if (!res.ok) throw new Error('Failed to fetch dashboard data');
     return res.json();
   },
 
   async getAnalysis(experimentId: string, fillerAcc = 0.75, rtMin = 100, rtMax = 3000): Promise<AnalysisResponse> {
-    const res = await fetch(`${BASE_URL}/analysis/${experimentId}?filler_acc=${fillerAcc}&rt_min=${rtMin}&rt_max=${rtMax}`);
+    const res = await fetchWithTimeout(`${BASE_URL}/analysis/${experimentId}?filler_acc=${fillerAcc}&rt_min=${rtMin}&rt_max=${rtMax}`);
     if (!res.ok) throw new Error('Failed to fetch analysis');
     return res.json();
   },
 
   async getParticipantAnalysis(experimentId: string, participantId: string): Promise<ParticipantDeepAnalysis> {
-    const res = await fetch(`${BASE_URL}/analysis/${experimentId}/participants/${participantId}`);
+    const res = await fetchWithTimeout(`${BASE_URL}/analysis/${experimentId}/participants/${participantId}`);
     if (!res.ok) throw new Error('Failed to fetch participant deep analysis');
     return res.json();
   },
 
   async deleteParticipant(experimentId: string, participantId: string): Promise<{ status: string; message: string }> {
-    const res = await fetch(`${BASE_URL}/experiments/${experimentId}/participants/${participantId}`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/experiments/${experimentId}/participants/${participantId}`, {
       method: 'DELETE'
     });
     if (!res.ok) throw new Error('Failed to delete participant');
@@ -151,7 +162,7 @@ export const api = {
   },
 
   async clearParticipants(experimentId: string, targetType: 'all' | 'pilots_only' | 'non_pilots_only' = 'non_pilots_only'): Promise<{ status: string; deleted_count: number; message: string }> {
-    const res = await fetch(`${BASE_URL}/experiments/${experimentId}/participants?target_type=${targetType}`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/experiments/${experimentId}/participants?target_type=${targetType}`, {
       method: 'DELETE'
     });
     if (!res.ok) throw new Error('Failed to clear participants');
@@ -159,7 +170,7 @@ export const api = {
   },
 
   async seedPilotData(experimentId: string): Promise<{ status: string; pilot_participants_count: number; message: string }> {
-    const res = await fetch(`${BASE_URL}/experiments/${experimentId}/seed-pilot`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/experiments/${experimentId}/seed-pilot`, {
       method: 'POST'
     });
     if (!res.ok) throw new Error('Failed to seed pilot benchmark data');
@@ -185,7 +196,7 @@ export const api = {
   async restoreDatabase(file: File): Promise<{ status: string; message: string }> {
     const formData = new FormData();
     formData.append('file', file);
-    const res = await fetch(`${BASE_URL}/admin/restore-db`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/admin/restore-db`, {
       method: 'POST',
       body: formData
     });
@@ -198,7 +209,7 @@ export const api = {
 
   // Norming Module
   async getNormingItems(experimentId: string): Promise<NormingItem[]> {
-    const res = await fetch(`${BASE_URL}/norming/${experimentId}`);
+    const res = await fetchWithTimeout(`${BASE_URL}/norming/${experimentId}`);
     if (!res.ok) throw new Error('Failed to fetch norming items');
     return res.json();
   },
@@ -210,7 +221,7 @@ export const api = {
     rating: number;
     feedback?: string;
   }): Promise<void> {
-    const res = await fetch(`${BASE_URL}/norming/rating`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/norming/rating`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -219,7 +230,7 @@ export const api = {
   },
 
   async getNormingResults(experimentId: string): Promise<NormingResult[]> {
-    const res = await fetch(`${BASE_URL}/norming/${experimentId}/results`);
+    const res = await fetchWithTimeout(`${BASE_URL}/norming/${experimentId}/results`);
     if (!res.ok) throw new Error('Failed to fetch norming results');
     return res.json();
   }
