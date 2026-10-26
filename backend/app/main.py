@@ -67,10 +67,336 @@ def cleanup_duplicate_trials(conn):
     except Exception as e:
         print(f"[VaniSPR] Notice during trial deduplication: {e}")
 
+def sync_english_benchmark_if_needed(force: bool = False):
+    """
+    Ensures the English Gibson & Warren (2004) Benchmark experiment has 4 experimental items
+    (1 per 2x2 condition cell) + 4 fillers so that all 4 Latin-Square lists have 8 trials.
+    """
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) as c FROM items WHERE experiment_id = 'exp_gibson_warren_2004' AND type = 'experimental'")
+            row = cursor.fetchone()
+            exp_count = row["c"] if row else 0
+            if exp_count >= 4 and not force:
+                return False
+
+            print(f"[VaniSPR] English benchmark has {exp_count} experimental items (<4). Upgrading to full 8-trial balanced design...")
+
+            exp1_id = "exp_gibson_warren_2004"
+            cursor.execute("DELETE FROM list_items WHERE list_id IN (SELECT id FROM lists WHERE experiment_id = ?)", (exp1_id,))
+            cursor.execute("DELETE FROM lists WHERE experiment_id = ?", (exp1_id,))
+            cursor.execute("DELETE FROM item_versions WHERE item_id IN (SELECT id FROM items WHERE experiment_id = ?)", (exp1_id,))
+            cursor.execute("DELETE FROM items WHERE experiment_id = ?", (exp1_id,))
+
+            items_data = [
+                # Item 1
+                {
+                    "item_number": 1, "type": "experimental",
+                    "question": "Did the proposal please the consultant?", "correct_answer": "yes",
+                    "explanation": "The text states that the proposal had pleased the consultant.",
+                    "versions": [
+                        ("+extract_VP", "The manager who the consultant claimed that the new proposal had pleased will hire five workers tomorrow.",
+                         [("The manager who", 1), ("the consultant", 2), ("claimed that", 3), ("the new proposal", 4), ("had pleased", 5), ("will hire", 6), ("five workers tomorrow.", 7)]),
+                        ("+extract_NP", "The manager who the consultant's claim about the new proposal had pleased will hire five workers tomorrow.",
+                         [("The manager who", 1), ("the consultant's", 2), ("claim about", 3), ("the new proposal", 4), ("had pleased", 5), ("will hire", 6), ("five workers tomorrow.", 7)]),
+                        ("-extract_VP", "The consultant claimed that the new proposal had pleased the manager who will hire five workers tomorrow.",
+                         [("The consultant", 1), ("claimed that", 2), ("that the", 3), ("new proposal", 4), ("had pleased", 5), ("the manager who", 6), ("will hire five workers tomorrow.", 7)]),
+                        ("-extract_NP", "The consultant's claim about the new proposal had pleased the manager who will hire five workers tomorrow.",
+                         [("The consultant's", 1), ("claim about", 2), ("about the", 3), ("new proposal", 4), ("had pleased", 5), ("the manager who", 6), ("will hire five workers tomorrow.", 7)])
+                    ]
+                },
+                # Item 2
+                {
+                    "item_number": 2, "type": "experimental",
+                    "question": "Did the melody captivate the singer?", "correct_answer": "yes",
+                    "explanation": "The acoustic melody captivated the singer.",
+                    "versions": [
+                        ("+extract_VP", "The singer who the producer believed that the acoustic melody had captivated will sign the contract soon.",
+                         [("The singer who", 1), ("the producer", 2), ("believed that", 3), ("the acoustic melody", 4), ("had captivated", 5), ("will sign", 6), ("the contract soon.", 7)]),
+                        ("+extract_NP", "The singer who the producer's belief about the acoustic melody had captivated will sign the contract soon.",
+                         [("The singer who", 1), ("the producer's", 2), ("belief about", 3), ("the acoustic melody", 4), ("had captivated", 5), ("will sign", 6), ("the contract soon.", 7)]),
+                        ("-extract_VP", "The producer believed that the acoustic melody had captivated the singer who will sign the contract soon.",
+                         [("The producer", 1), ("believed that", 2), ("that the", 3), ("acoustic melody", 4), ("had captivated", 5), ("the singer who", 6), ("will sign the contract soon.", 7)]),
+                        ("-extract_NP", "The producer's belief about the acoustic melody had captivated the singer who will sign the contract soon.",
+                         [("The producer's", 1), ("belief about", 2), ("about the", 3), ("acoustic melody", 4), ("had captivated", 5), ("the singer who", 6), ("will sign the contract soon.", 7)])
+                    ]
+                },
+                # Item 3
+                {
+                    "item_number": 3, "type": "experimental",
+                    "question": "Did the private agency recruit the detective?", "correct_answer": "yes",
+                    "explanation": "The agency recruited the detective to interrogate the suspect.",
+                    "versions": [
+                        ("+extract_VP", "The detective who the inspector claimed that the private agency had recruited will interrogate the suspect tomorrow.",
+                         [("The detective who", 1), ("the inspector", 2), ("claimed that", 3), ("the private agency", 4), ("had recruited", 5), ("will interrogate", 6), ("the suspect tomorrow.", 7)]),
+                        ("+extract_NP", "The detective who the inspector's claim about the private agency had recruited will interrogate the suspect tomorrow.",
+                         [("The detective who", 1), ("the inspector's", 2), ("claim about", 3), ("the private agency", 4), ("had recruited", 5), ("will interrogate", 6), ("the suspect tomorrow.", 7)]),
+                        ("-extract_VP", "The inspector claimed that the private agency had recruited the detective who will interrogate the suspect tomorrow.",
+                         [("The inspector", 1), ("claimed that", 2), ("that the", 3), ("private agency", 4), ("had recruited", 5), ("the detective who", 6), ("will interrogate the suspect tomorrow.", 7)]),
+                        ("-extract_NP", "The inspector's claim about the private agency had recruited the detective who will interrogate the suspect tomorrow.",
+                         [("The inspector's", 1), ("claim about", 2), ("about the", 3), ("private agency", 4), ("had recruited", 5), ("the detective who", 6), ("will interrogate the suspect tomorrow.", 7)])
+                    ]
+                },
+                # Item 4
+                {
+                    "item_number": 4, "type": "experimental",
+                    "question": "Did the contemporary gallery represent the artist?", "correct_answer": "yes",
+                    "explanation": "The gallery represented the artist who will exhibit paintings.",
+                    "versions": [
+                        ("+extract_VP", "The artist who the curator believed that the contemporary gallery had represented will exhibit new paintings soon.",
+                         [("The artist who", 1), ("the curator", 2), ("believed that", 3), ("the contemporary gallery", 4), ("had represented", 5), ("will exhibit", 6), ("new paintings soon.", 7)]),
+                        ("+extract_NP", "The artist who the curator's belief about the contemporary gallery had represented will exhibit new paintings soon.",
+                         [("The artist who", 1), ("the curator's", 2), ("belief about", 3), ("the contemporary gallery", 4), ("had represented", 5), ("will exhibit", 6), ("new paintings soon.", 7)]),
+                        ("-extract_VP", "The curator believed that the contemporary gallery had represented the artist who will exhibit new paintings soon.",
+                         [("The curator", 1), ("believed that", 2), ("that the", 3), ("contemporary gallery", 4), ("had represented", 5), ("the artist who", 6), ("new paintings soon.", 7)]),
+                        ("-extract_NP", "The curator's belief about the contemporary gallery had represented the artist who will exhibit new paintings soon.",
+                         [("The curator's", 1), ("belief about", 2), ("about the", 3), ("contemporary gallery", 4), ("had represented", 5), ("the artist who", 6), ("new paintings soon.", 7)])
+                    ]
+                },
+                # Fillers (901 - 904)
+                {
+                    "item_number": 901, "type": "filler",
+                    "question": "Did the chef prepare dinner for eighty guests?", "correct_answer": "yes",
+                    "explanation": "The chef prepared a lavish dinner for eighty guests.",
+                    "versions": [
+                        ("filler", "The head chef prepared a lavish dinner for eighty guests at the grand hotel ballroom.",
+                         [("The head chef", 1), ("prepared a lavish", 2), ("dinner for eighty guests", 3), ("at the grand hotel ballroom.", 4)])
+                    ]
+                },
+                {
+                    "item_number": 902, "type": "filler",
+                    "question": "Was the train delayed because of heavy snow?", "correct_answer": "no",
+                    "explanation": "The delay was due to electrical signal failure, not snow.",
+                    "versions": [
+                        ("filler", "The morning commuter express was delayed due to unexpected electrical signal failure.",
+                         [("The morning commuter express", 1), ("was delayed due to", 2), ("unexpected electrical", 3), ("signal failure.", 4)])
+                    ]
+                },
+                {
+                    "item_number": 903, "type": "filler",
+                    "question": "Did the scientist submit a research grant proposal?", "correct_answer": "yes",
+                    "explanation": "The research scientist submitted the grant application.",
+                    "versions": [
+                        ("filler", "The research scientist submitted a competitive grant proposal to the national science foundation.",
+                         [("The research scientist", 1), ("submitted a competitive", 2), ("grant proposal to", 3), ("the national science foundation.", 4)])
+                    ]
+                },
+                {
+                    "item_number": 904, "type": "filler",
+                    "question": "Did the medical center close the emergency pediatric unit?", "correct_answer": "no",
+                    "explanation": "The hospital opened a new specialized surgical unit.",
+                    "versions": [
+                        ("filler", "The regional medical center opened a modern surgical trauma unit on Monday morning.",
+                         [("The regional medical center", 1), ("opened a modern", 2), ("surgical trauma unit", 3), ("on Monday morning.", 4)])
+                    ]
+                }
+            ]
+
+            saved_items = []
+            for it in items_data:
+                i_id = f"item_e1_{it['item_number']}"
+                cursor.execute(
+                    "INSERT INTO items (id, experiment_id, item_number, type, question, correct_answer, explanation) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (i_id, exp1_id, it["item_number"], it["type"], it.get("question"), it.get("correct_answer"), it.get("explanation"))
+                )
+                saved_versions = []
+                for cond, sent, reg_defs in it["versions"]:
+                    v_id = f"ver_{i_id}_{cond}"
+                    regions = [{"index": idx, "text": txt, "words": txt.split()} for txt, idx in reg_defs]
+                    words = sent.split()
+                    graphemes = len(sent.replace(" ", ""))
+                    cursor.execute(
+                        "INSERT INTO item_versions (id, item_id, condition_label, sentence_text, regions_json, word_count, grapheme_count) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (v_id, i_id, cond, sent, json.dumps(regions), len(words), graphemes)
+                    )
+                    saved_versions.append({"id": v_id, "condition_label": cond, "sentence_text": sent, "regions": regions})
+                saved_items.append({"id": i_id, "item_number": it["item_number"], "type": it["type"], "versions": saved_versions})
+
+            cond_labels = ["+extract_VP", "+extract_NP", "-extract_VP", "-extract_NP"]
+            ls_lists = generate_latin_square_lists(saved_items, cond_labels)
+            for list_num, list_items in ls_lists.items():
+                l_id = f"list_e1_{list_num}"
+                cursor.execute("INSERT INTO lists (id, experiment_id, list_number) VALUES (?, ?, ?)", (l_id, exp1_id, list_num))
+                for order_hint, li in enumerate(list_items):
+                    cursor.execute(
+                        "INSERT INTO list_items (id, list_id, item_version_id, order_hint) VALUES (?, ?, ?, ?)",
+                        (str(uuid.uuid4()), l_id, li["item_version_id"], order_hint + 1)
+                    )
+
+            print("[VaniSPR] English benchmark successfully upgraded: 4 experimental items, 4 fillers, 4 Latin-Square lists (8 items per list).")
+            return True
+    except Exception as e:
+        print(f"[VaniSPR] Notice during English benchmark sync: {e}")
+        return False
+
+def sync_hindi_csv_if_needed(force: bool = False):
+    """
+    Ensures all 60 Hindi items (24 experimental items across 4 conditions + 36 fillers)
+    and all 4 Latin-Square lists (60 items per list) are fully populated in the database.
+    If the database only has fewer than 60 items for Hindi, auto-imports from hindi_lists_for_software.csv.
+    """
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) as c FROM items WHERE experiment_id = 'exp_hindi_sov_rel_2026'")
+            row = cursor.fetchone()
+            item_count = row["c"] if row else 0
+            if item_count >= 60 and not force:
+                return False
+
+            print(f"[VaniSPR] Hindi experiment currently has {item_count} items. Auto-syncing 60 stimuli items from hindi_lists_for_software.csv...")
+
+            possible_paths = [
+                os.path.join(os.path.dirname(__file__), "hindi_lists_for_software.csv"),
+                os.path.join(os.path.dirname(__file__), "..", "hindi_lists_for_software.csv"),
+                os.path.join(os.path.dirname(__file__), "..", "..", "hindi_lists_for_software.csv"),
+                "hindi_lists_for_software.csv"
+            ]
+            csv_path = None
+            for p in possible_paths:
+                if os.path.exists(p):
+                    csv_path = p
+                    break
+
+            if not csv_path:
+                print("[VaniSPR] Notice: hindi_lists_for_software.csv not found for auto-sync.")
+                return False
+
+            with open(csv_path, encoding="utf-8-sig") as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+
+            def get_f(norm_row: dict, *keys: str) -> str:
+                for k in keys:
+                    v = norm_row.get(k)
+                    if v is not None and str(v).strip() != "":
+                        return str(v).strip()
+                return ""
+
+            cursor.execute("DELETE FROM list_items WHERE list_id IN (SELECT id FROM lists WHERE experiment_id = 'exp_hindi_sov_rel_2026')")
+            cursor.execute("DELETE FROM lists WHERE experiment_id = 'exp_hindi_sov_rel_2026'")
+            cursor.execute("DELETE FROM item_versions WHERE item_id IN (SELECT id FROM items WHERE experiment_id = 'exp_hindi_sov_rel_2026')")
+            cursor.execute("DELETE FROM items WHERE experiment_id = 'exp_hindi_sov_rel_2026'")
+
+            imported_rows = 0
+            list_mappings = {}
+            conditions_seen = set()
+
+            for row in rows:
+                norm_row = {k.strip().lower() if k else "": v for k, v in row.items()}
+                raw_sentence = get_f(norm_row, "sentence", "sentence_text", "text")
+                raw_regions = get_f(norm_row, "regions", "region_text", "region")
+                if not raw_sentence and not raw_regions:
+                    continue
+
+                imported_rows += 1
+                raw_list = get_f(norm_row, "list", "list_number", "list_num", "group")
+                list_num = None
+                if raw_list:
+                    if raw_list.isdigit():
+                        list_num = int(raw_list)
+                    else:
+                        first_char = raw_list[0].upper()
+                        if "A" <= first_char <= "Z":
+                            list_num = ord(first_char) - ord("A") + 1
+
+                raw_id = get_f(norm_row, "id", "item_id", "item_number", "item", "item_no")
+                raw_type = get_f(norm_row, "type", "item_type").lower()
+
+                if raw_type in ["item", "experimental", "exp"]:
+                    item_type = "experimental"
+                elif raw_type in ["filler", "fill"]:
+                    item_type = "filler"
+                elif raw_type in ["practice", "prac"]:
+                    item_type = "practice"
+                else:
+                    item_type = "filler" if raw_id.lower().startswith("f") else "experimental"
+
+                digits = re.findall(r"\d+", raw_id)
+                parsed_num = int(digits[0]) if digits else imported_rows
+                item_num = 900 + parsed_num if item_type == "filler" and parsed_num < 900 else parsed_num
+
+                cond_str = get_f(norm_row, "condition", "condition_label", "cond")
+                cond_label = cond_str if cond_str else (item_type if item_type != "experimental" else "default")
+                if item_type == "experimental":
+                    conditions_seen.add(cond_label)
+
+                raw_question = get_f(norm_row, "question", "question_text") or None
+                raw_answer = get_f(norm_row, "answer", "correct_answer")
+                explanation = get_f(norm_row, "explanation") or None
+
+                ans_lower = raw_answer.lower()
+                if ans_lower in ["हाँ", "haan", "yes", "y", "true", "1", "t"]:
+                    correct_ans = "yes"
+                elif ans_lower in ["नहीं", "nahin", "no", "n", "false", "0", "f"]:
+                    correct_ans = "no"
+                else:
+                    correct_ans = raw_answer or None
+
+                regions_src = raw_regions if ("|" in raw_regions) else raw_sentence
+                if "|" in regions_src:
+                    raw_chunks = [c.strip() for c in regions_src.split("|") if c.strip()]
+                    regions = []
+                    clean_words = []
+                    for idx, chunk in enumerate(raw_chunks):
+                        chunk_nfc = unicodedata.normalize("NFC", chunk)
+                        c_words = chunk_nfc.split()
+                        clean_words.extend(c_words)
+                        regions.append({"index": idx + 1, "text": chunk_nfc, "words": c_words})
+                    clean_sentence = " ".join(clean_words)
+                else:
+                    clean_sentence = unicodedata.normalize("NFC", raw_sentence or raw_regions)
+                    clean_words = clean_sentence.split()
+                    regions = [{"index": idx + 1, "text": w, "words": [w]} for idx, w in enumerate(clean_words)]
+
+                cursor.execute("SELECT id FROM items WHERE experiment_id = 'exp_hindi_sov_rel_2026' AND item_number = ?", (item_num,))
+                existing_item = cursor.fetchone()
+                if existing_item:
+                    item_id = existing_item["id"]
+                else:
+                    item_id = f"item_{uuid.uuid4().hex[:10]}"
+                    cursor.execute(
+                        "INSERT INTO items (id, experiment_id, item_number, type, question, correct_answer, explanation) VALUES (?, 'exp_hindi_sov_rel_2026', ?, ?, ?, ?, ?)",
+                        (item_id, item_num, item_type, raw_question, correct_ans, explanation)
+                    )
+
+                cursor.execute("SELECT id FROM item_versions WHERE item_id = ? AND condition_label = ?", (item_id, cond_label))
+                existing_ver = cursor.fetchone()
+                grapheme_count = len(clean_sentence.replace(" ", ""))
+                if existing_ver:
+                    v_id = existing_ver["id"]
+                else:
+                    v_id = f"ver_{uuid.uuid4().hex[:10]}"
+                    cursor.execute(
+                        "INSERT INTO item_versions (id, item_id, condition_label, sentence_text, regions_json, word_count, grapheme_count) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (v_id, item_id, cond_label, clean_sentence, json.dumps(regions), len(clean_words), grapheme_count)
+                    )
+
+                if list_num is not None:
+                    list_mappings.setdefault(list_num, []).append(v_id)
+
+            for l_num, v_ids in sorted(list_mappings.items()):
+                new_list_id = f"list_{uuid.uuid4().hex[:10]}"
+                cursor.execute("INSERT INTO lists (id, experiment_id, list_number) VALUES (?, 'exp_hindi_sov_rel_2026', ?)", (new_list_id, l_num))
+                for order_hint, v_id in enumerate(v_ids):
+                    cursor.execute(
+                        "INSERT INTO list_items (id, list_id, item_version_id, order_hint) VALUES (?, ?, ?, ?)",
+                        (str(uuid.uuid4()), new_list_id, v_id, order_hint + 1)
+                    )
+
+            print("[VaniSPR] Successfully synced 60 Hindi stimuli items and Latin-Square lists.")
+            return True
+    except Exception as e:
+        print(f"[VaniSPR] Notice during Hindi sync: {e}")
+        return False
+
 @app.on_event("startup")
 def on_startup():
     init_db()
     seed_database()
+    sync_english_benchmark_if_needed()
+    sync_hindi_csv_if_needed()
     with get_db() as conn:
         cleanup_duplicate_trials(conn)
 
@@ -746,13 +1072,26 @@ def init_participant_session(req: ParticipantInitRequest):
                     seen_filler_keys.add(f_key)
                     unique_fillers_pool.append(f)
 
-            num_fillers = max(len(selected_targets), 4)
+            target_count = len(selected_targets)
+            num_fillers = max(8 - target_count, 4)
             if len(unique_fillers_pool) >= num_fillers:
                 selected_fillers = random.sample(unique_fillers_pool, num_fillers)
             else:
                 selected_fillers = list(unique_fillers_pool)
 
             regular_trials = selected_targets + selected_fillers
+
+            # Guaranteed 8-Trial Floor: If regular_trials < 8 for any reason, pad with remaining list items
+            if len(regular_trials) < 8:
+                used_keys = {t["sentence_text"].strip() for t in regular_trials}
+                for item in fillers_pool + [it for sub in exp_by_condition.values() for it in sub]:
+                    if len(regular_trials) >= 8:
+                        break
+                    s_key = item["sentence_text"].strip()
+                    if s_key not in used_keys:
+                        used_keys.add(s_key)
+                        regular_trials.append(item)
+
 
         # Build pseudo-randomized sequence (strictly interleaving: Filler -> Target -> Filler -> Target...)
         sequence = pseudo_randomize_trials(regular_trials, practice_trials)
@@ -1356,6 +1695,16 @@ async def restore_database_backup(file: UploadFile = File(...)):
 
     shutil.move(temp_path, DB_PATH)
     return {"status": "ok", "message": "Database backup restored successfully."}
+
+@app.post("/api/admin/sync-hindi")
+def manual_sync_hindi():
+    """
+    Force-syncs all 60 Hindi items and 4 Latin-Square lists from CSV into the database.
+    """
+    synced = sync_hindi_csv_if_needed(force=True)
+    with get_db() as conn:
+        c = conn.execute("SELECT COUNT(*) as cnt FROM items WHERE experiment_id = 'exp_hindi_sov_rel_2026'").fetchone()["cnt"]
+    return {"status": "ok", "items_count": c, "synced": synced}
 
 # ==============================================================================
 # NORMING SURVEY MODULE (Plausibility rating 1-7 & exclusion testing)

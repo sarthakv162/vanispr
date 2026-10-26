@@ -269,7 +269,7 @@ export const TrialRunner: React.FC<TrialRunnerProps> = ({
             </span>
           )}
           <span className="badge badge-indigo">
-            {language === 'hi' ? 'Hindi Study (8 Sentences)' : 'English Benchmark (4 Sentences)'}
+            {language === 'hi' ? 'Hindi Study (8 Sentences)' : 'English Benchmark (8 Sentences)'}
           </span>
           <span className="badge" style={{ background: 'var(--bg-surface-elevated)', color: 'var(--text-secondary)' }}>
             List {listNumber}

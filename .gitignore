@@ -37,5 +37,7 @@ Thumbs.db
 # Research Documents & CSV datasets
 *.pdf
 *.csv
+!hindi_lists_for_software.csv
+!backend/app/hindi_lists_for_software.csv
 data/
 *Build Plan*.md

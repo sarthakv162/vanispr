@@ -97,7 +97,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   const isSelected = exp.id === activeExperiment?.id;
                   const isHindi = exp.language === 'hi';
                   const label = isHindi ? 'Hindi' : 'English';
-                  const trialCountHint = isHindi ? '8 Trials' : '4 Trials';
+                  const trialCountHint = '8 Trials';
 
                   return (
                     <button
@@ -131,7 +131,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         padding: '1px 5px',
                         borderRadius: 4
                       }}>
-                        {isHindi ? '8' : '4'}
+                        8
                       </span>
                     </button>
                   );
