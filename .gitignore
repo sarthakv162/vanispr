@@ -1,0 +1,35 @@
+# Environments & Virtual Envs
+.venv/
+env/
+venv/
+ENV/
+*.env
+
+# Dependencies & Package Managers
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Python Cache & Artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Database temporary/WAL files
+*.db-journal
+*.db-wal
+*.db-shm
+
+# IDEs & OS Files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+*.log
