@@ -84,10 +84,14 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
   const [rtMin, setRtMin] = useState<number>(100);
   const [rtMax, setRtMax] = useState<number>(3000);
 
-  const fetchAnalysis = async () => {
+  const fetchAnalysis = async (customCutoff?: number, customMin?: number, customMax?: number) => {
+    const cutoff = customCutoff !== undefined ? customCutoff : fillerCutoff;
+    const min = customMin !== undefined ? customMin : rtMin;
+    const max = customMax !== undefined ? customMax : rtMax;
+
     try {
       setLoading(true);
-      const res = await api.getAnalysis(experiment.id, fillerCutoff, rtMin, rtMax);
+      const res = await api.getAnalysis(experiment.id, cutoff, min, max);
       setData(res);
       if (res?.participants_summary?.length) {
         setSelectedParticipantId((prev) => {
@@ -243,6 +247,15 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
               <FileText size={14} /> Python Script (statsmodels)
             </a>
 
+            <button
+              onClick={handleSeedPilot}
+              className="btn btn-secondary btn-sm"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              title="Add 12 balanced benchmark participants demonstrating the Gibson & Warren (2004) Region 5 interaction"
+            >
+              <RefreshCw size={14} /> Seed 12 Benchmark Pilots
+            </button>
+
             <a
               href={api.getExportDbUrl()}
               className="btn btn-secondary btn-sm"
@@ -289,14 +302,19 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
             </label>
             <select
               className="select"
-              style={{ width: 110, padding: '4px 8px', fontSize: '0.8rem' }}
+              style={{ width: 145, padding: '4px 8px', fontSize: '0.8rem' }}
               value={fillerCutoff}
-              onChange={(e) => setFillerCutoff(parseFloat(e.target.value))}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setFillerCutoff(val);
+                fetchAnalysis(val);
+              }}
             >
+              <option value="0.75">≥ 75% (Paper standard)</option>
               <option value="0.70">≥ 70%</option>
-              <option value="0.75">≥ 75% (Paper)</option>
-              <option value="0.80">≥ 80%</option>
-              <option value="0.0">No filter</option>
+              <option value="0.50">≥ 50%</option>
+              <option value="0.25">≥ 25%</option>
+              <option value="0.0">No filter (Show All)</option>
             </select>
           </div>
 
@@ -322,7 +340,7 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ms</span>
           </div>
 
-          <button onClick={fetchAnalysis} className="btn btn-primary btn-sm" style={{ padding: '4px 10px' }}>
+          <button onClick={() => fetchAnalysis()} className="btn btn-primary btn-sm" style={{ padding: '4px 10px' }}>
             <RefreshCw size={13} className={loading ? 'pulse' : ''} /> Recompute
           </button>
         </div>
@@ -361,7 +379,7 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
                   <h4 style={{ fontSize: '1.1rem', fontWeight: 600 }}>
                     {metricMode === 'residual' ? 'Residual Reading Time by Region' : 'Raw Reading Time by Region'}
                   </h4>
-                  <span className="badge badge-emerald">
+                  <span className={`badge ${data.summary.participants_retained > 0 ? 'badge-emerald' : 'badge-amber'}`}>
                     {data.summary.participants_retained} Subjects Retained
                   </span>
                 </div>
@@ -429,6 +447,52 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
               }}>
                 Region 5: Critical Verb Region
               </div>
+
+              {/* In-Chart Overlay when 0 subjects pass cutoff */}
+              {data.summary.participants_retained === 0 && (
+                <div style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  background: 'var(--bg-surface-elevated)',
+                  border: '1px solid var(--accent-amber)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '22px 26px',
+                  textAlign: 'center',
+                  maxWidth: 480,
+                  width: '90%',
+                  boxShadow: '0 12px 36px rgba(0,0,0,0.3)',
+                  zIndex: 10
+                }}>
+                  <AlertCircle size={30} color="var(--accent-amber)" style={{ margin: '0 auto 8px' }} />
+                  <h5 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
+                    0 Subjects Retained by {Math.round(fillerCutoff * 100)}% Cutoff
+                  </h5>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 16 }}>
+                    All participants scored below the paper's comprehension threshold. Under psycholinguistic standards, inattentive sessions are excluded. You can relax the filter to plot your test runs, or load the 12-subject benchmark dataset.
+                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => {
+                        setFillerCutoff(0.0);
+                        fetchAnalysis(0.0);
+                      }}
+                      className="btn btn-primary btn-sm"
+                      style={{ fontSize: '0.8rem', padding: '6px 14px' }}
+                    >
+                      Set to "No filter" & Plot Test Runs
+                    </button>
+                    <button
+                      onClick={handleSeedPilot}
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontSize: '0.8rem', padding: '6px 14px' }}
+                    >
+                      Seed 12 Benchmark Pilots
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Chart SVG */}
               <svg viewBox="0 0 800 320" style={{ width: '100%', height: 320, overflow: 'hidden' }}>
@@ -881,7 +945,7 @@ export const AnalysisConsole: React.FC<AnalysisConsoleProps> = ({ experiment }) 
                       <td style={{ padding: '8px 10px' }} className="mono">{p.mean_rt_ms} ms</td>
                       <td style={{ padding: '8px 10px' }}>
                         <span className={`badge ${p.retained ? 'badge-emerald' : 'badge-rose'}`}>
-                          {p.retained ? 'Retained' : 'Excluded (<75%)'}
+                          {p.retained ? 'Retained' : `Excluded (<${Math.round(fillerCutoff * 100)}%)`}
                         </span>
                       </td>
                       <td style={{ padding: '8px 10px', textAlign: 'right' }}>
