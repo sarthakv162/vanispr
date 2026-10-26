@@ -8,8 +8,8 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, theme, onToggleTheme }) => {
-  const [email, setEmail] = useState('aadyagupta@gmail.com');
-  const [password, setPassword] = useState('aadyasarthak1234');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -193,7 +193,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, theme, onT
                   className="input"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="aadyagupta@gmail.com"
+                  placeholder="Enter researcher email"
                   required
                   style={{ paddingLeft: 40 }}
                 />
@@ -266,7 +266,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, theme, onT
             </button>
           </form>
 
-          {/* Credentials Info Tag */}
+          {/* Security Notice Tag */}
           <div style={{
             marginTop: 22,
             padding: '10px 14px',
@@ -279,8 +279,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, theme, onT
             alignItems: 'center',
             gap: 8
           }}>
-            <Sparkles size={14} color="var(--accent-amber)" />
-            <span>Authorized User: <strong>Aadya Gupta</strong></span>
+            <Lock size={14} color="var(--accent-indigo)" />
+            <span>Restricted Access: Authorized Psycholinguistics Researchers Only</span>
           </div>
         </div>
       </main>
